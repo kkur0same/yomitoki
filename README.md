@@ -24,7 +24,7 @@ An annotated tour of one rendered note (the [online-softmax example](examples/on
 
 *Method detail: runnable Python snippets that turn the equations into code, Mermaid schematics for structure and flow, and external pointers into the real implementation at exact line ranges.*
 
-**▶ Try it live:** [open the online-softmax note rendered](https://htmlpreview.github.io/?https://github.com/kkur0same/yomitoki/blob/main/examples/online-softmax/index.html) (math via KaTeX, diagrams via Mermaid). This link works once the repo is public; until then, clone and open `examples/online-softmax/index.html` in a browser.
+**▶ Try it live:** [open the online-softmax note rendered](https://kkur0same.github.io/yomitoki/examples/online-softmax/index.html) (math via KaTeX, diagrams via Mermaid). Served by GitHub Pages, so all scripts run exactly as they do locally. If the link 404s, enable Pages once: **Settings → Pages → Deploy from a branch → `main` / `/ (root)`**.
 
 ## What it produces
 
