@@ -109,7 +109,13 @@ Do not start by filling every schema field. Start by deciding what the reader mu
 
 ### 3. Author `analysis.json`
 
-Use `references/authoring-guide.md` for the field contract and examples. Method subsections should point to `sections/*.html` via `body_html_file`; keep long HTML out of JSON.
+Start from a correctly-shaped skeleton instead of guessing field names:
+
+```bash
+python3 scripts/assemble.py --scaffold --out /tmp/yomitoki/<slug>/
+```
+
+This writes a valid `analysis.json` + `coderefs.json` + `sections/` stub. Fill in the TODO fields. Use `references/authoring-guide.md` for the field contract and examples. Method subsections should point to `sections/*.html` via `body_html_file`; keep long HTML out of JSON. `assemble.py` validates the shape (types, required fields, `quiz.model_answer` vs `qa.a`, `coderefs` as `{"refs": [...]}`) and reports all problems at once before rendering.
 
 Good method subsections usually follow:
 
@@ -164,6 +170,36 @@ Before calling the note done, read the TL;DR, Overview, and first method subsect
 - Did any section become a checklist rather than an explanation?
 
 If the answer is no, revise the prose first. The checker cannot judge taste.
+
+## Parallel Authoring with Subagents (large papers)
+
+Default to single-context authoring. For a long or dense paper (rough gate: >20 pages, OR >5 method subsections, OR a systems paper with many subsystems), parallelize the expensive part, deep-reading and writing the method subsections, with subagents. Keep the narrative spine and final assembly in ONE context so the note stays coherent.
+
+### When to fan out
+
+- Fan out: long/dense paper whose method splits into independent subsections.
+- Stay inline: one core mechanism, or subsections that heavily cross-reference each other.
+
+### Procedure
+
+1. **Read for the story (orchestrator).** One story-level pass: intro, method headers, results. Write the five-line outline and Paper Overview yourself. Never delegate the spine.
+2. **Plan the fan-out (orchestrator).** Build an assignment table before dispatch: one row per method subsection with its title, its job in the outline, the line range to read, the equations it owns, the figures assigned to it (each figure to exactly one subsection), and the numbers it may cite. Add a short shared-style note: canonical term spellings, "no em-dashes", "explain the hard part first", target depth.
+3. **Dispatch one subagent per method subsection (in parallel).** Each gets: the path to `extracted.txt` and its line range, the five-line outline, its assignment row, the shared-style note, and the path to `references/authoring-guide.md`. It authors ONLY its `sections/NN-slug.html`, grounds every claim in the paper text, and returns the file path plus the figures/coderefs it used. Subagents do NOT write `analysis.json`.
+4. **Source code refs in parallel.** Dispatch one subagent to find the author repo, map claims to exact line ranges, and return `coderefs.json` entries (see `references/code-ref-waterfall.md`). Keep this separate so refs stay consistent.
+5. **Reconcile and author the rest (orchestrator).** Collect the subsection files, resolve duplicate figure/coderef claims, then author the voice-sensitive fields in one pass: TL;DR, overview, timeline, experiments, comparison, limitations, Q&A, quiz. Wire in the subsection files and coderefs.
+6. **Assemble, check, self-review (orchestrator)** as in steps 6-7. The `--check` and final taste pass run in one context.
+
+### Subagent dispatch contract (paste into each Agent prompt)
+
+> You are authoring ONE method subsection of a paper reading note. Read {extracted.txt} lines {A-B}. Ground every sentence in that text; do not invent results. Follow the method-subsection rules in {authoring-guide.md}. The note's spine: {five-line outline}. Your subsection: {title} — {its job}. Use only these figures: {ids}. Write the HTML body to {sections/NN-slug.html} and return ONLY: the file path, one line on what you covered, and any figure/coderef you referenced. Match this style: {shared-style note}. Do not write analysis.json.
+
+### Caveats
+
+- Subagents share no context, so every dispatch must be fully self-contained.
+- Assign each figure and code ref to exactly one subagent; the checker flags visual duplicates.
+- Gate on size: fanning out a short paper costs more than it saves.
+- A subagent's final message IS its return value; tell it to return the path, not a prose essay.
+- On harnesses with a Workflow tool, the same shape maps to a `pipeline()` with one stage per subsection for deterministic fan-out.
 
 ## Reference Files
 

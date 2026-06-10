@@ -271,7 +271,16 @@ Rules:
 
 ## Quiz
 
-3-5 self-check items. Ask the reader to derive, compare, or sketch. Multi-line code answers must use markdown fences.
+3-5 self-check items. Each item is an object with exactly these fields:
+
+```json
+{"q": "Derive ... / Compare ... / Sketch ...", "model_answer": "..."}
+```
+
+The answer field is `model_answer`, NOT `a` (that is the Q&A field). Using `a`
+renders a blank "Model answer." in the page; `assemble.py` now flags this as a
+schema error. Ask the reader to derive, compare, or sketch. Multi-line code
+answers must use markdown fences.
 
 ## Figures
 

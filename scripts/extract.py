@@ -57,6 +57,19 @@ ARXIV_URL_RE = re.compile(
 GITHUB_RE = re.compile(
     r"https://github\.com/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)"
 )
+HF_RE = re.compile(
+    r"https?://huggingface\.co/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)"
+)
+# Hugging Face namespaces that are never a model/code repo.
+HF_NAMESPACE_BLOCKLIST = {
+    "datasets", "blog", "docs", "papers", "spaces", "collections", "organizations",
+}
+# Words that, just before a repo URL, mark it as the paper's own released code.
+CODE_PROXIMITY_RE = re.compile(
+    r"(open[- ]?source|implementation|available at|released?|reproduce|"
+    r"our (?:code|model|implementation)|project page|\bcode\b)",
+    re.I,
+)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -84,19 +97,44 @@ def curl_download(url: str, dest: Path, quiet: bool = False):
         raise RuntimeError(f"curl failed (rc={result.returncode}) for {url}")
 
 
+def _repo_context_score(text: str, pos: int) -> int:
+    """Score a repo URL by how strongly the preceding text (a 120-char
+    lookbehind) marks it as the authors' own released code."""
+    window = text[max(0, pos - 120):pos]
+    return len(CODE_PROXIMITY_RE.findall(window))
+
+
 def detect_author_repo(text: str) -> str | None:
-    """Find the first credible GitHub repo URL in text."""
-    for owner, repo in GITHUB_RE.findall(text):
-        # Skip infrastructure / meta repos
+    """Find the paper's own code repo (GitHub or Hugging Face).
+
+    Collect every credible candidate URL, then prefer the one whose preceding
+    context mentions code / open-source / implementation; break ties by
+    earliest appearance. This beats 'first GitHub URL in reading order', which
+    often grabs a citation or an infra link instead of the authors' release,
+    and it can surface Hugging Face repos for models that ship code there.
+    """
+    candidates = []  # (score, position, url)
+    for m in GITHUB_RE.finditer(text):
+        owner, repo = m.group(1), m.group(2)
         if owner in INFRA_REPO_BLOCKLIST:
             continue
         if repo in ("html_feedback", "LaTeXML"):
             continue
-        # Skip obviously generic names
         if repo.lower() in ("arxiv", "latex", "paper", "template"):
             continue
-        return f"https://github.com/{owner}/{repo}"
-    return None
+        candidates.append((_repo_context_score(text, m.start()), m.start(),
+                           f"https://github.com/{owner}/{repo}"))
+    for m in HF_RE.finditer(text):
+        owner, repo = m.group(1), m.group(2)
+        if owner.lower() in HF_NAMESPACE_BLOCKLIST:
+            continue
+        candidates.append((_repo_context_score(text, m.start()), m.start(),
+                           f"https://huggingface.co/{owner}/{repo}"))
+    if not candidates:
+        return None
+    # Highest context score wins; ties broken by earliest appearance.
+    candidates.sort(key=lambda c: (-c[0], c[1]))
+    return candidates[0][2]
 
 
 def parse_input(inp: str) -> tuple[str, str | None, str | None]:
@@ -454,6 +492,38 @@ def ensure_pdf(out_dir: Path, pdf_url: str | None, pdf_local: str | None,
     return dest
 
 
+def read_pdf_metadata(pdf_path: Path) -> tuple[str, str]:
+    """Read embedded /Title and /Author from the PDF document info.
+
+    When present and not exporter junk, this is far more reliable than parsing
+    the first page, so callers should prefer it and fall back to the text
+    heuristic only for missing fields.
+    """
+    try:
+        import pypdf
+    except ImportError:
+        return "", ""
+    try:
+        with open(pdf_path, "rb") as f:
+            meta = pypdf.PdfReader(f).metadata or {}
+    except Exception:
+        return "", ""
+
+    def _clean(v):
+        return re.sub(r"\s+", " ", str(v)).strip() if v else ""
+
+    title = _clean(meta.get("/Title"))
+    author = _clean(meta.get("/Author"))
+    low = title.lower()
+    if (low in ("untitled", "microsoft word", "paper", "main", "manuscript", "arxiv")
+            or low.endswith((".dvi", ".tex", ".doc", ".docx", ".pdf"))
+            or len(title) < 6):
+        title = ""
+    if len(author) < 2:
+        author = ""
+    return title, author
+
+
 def extract_text_pypdf(pdf_path: Path, out_dir: Path, quiet: bool) -> Path:
     """Extract text from PDF using pypdf; saves as extracted.txt."""
     try:
@@ -713,41 +783,77 @@ def parse_sections_pdf(txt_path: Path) -> list[dict]:
     return sections
 
 
+# Trailing tokens/punctuation that mark a wrapped (continued) title line.
+_TITLE_CONNECTIVE_RE = re.compile(
+    r"([:,\-]|\b(?:and|or|of|for|the|a|an|to|with|on|in|via|using|towards?|from|by))$",
+    re.I,
+)
+# Signals that a line is an author/affiliation/section start, not a title line.
+_NON_TITLE_RE = re.compile(
+    r"@|\b(universit|institut|laborator|abstract|introduction|keywords|contents|"
+    r"deepmind|openai|microsoft|nvidia|anthropic)\b",
+    re.I,
+)
+# Lines short enough to fail the length guard but acceptable as an org byline.
+_ORG_AUTHOR_RE = re.compile(
+    r"(-?AI\b|Labs?\b|Research\b|Team\b|Institute\b|University\b|DeepMind|OpenAI|"
+    r"Google|Microsoft|NVIDIA|Meta|Anthropic)",
+)
+
+
 def extract_title_authors_pdf(txt_path: Path) -> tuple[str, str]:
-    """Best-effort title/author from first page of extracted.txt."""
+    """Best-effort title/author from the first page of extracted.txt.
+
+    Handles titles that wrap across several lines (joined while a line ends in a
+    connective and the next is not an author/affiliation), and recognizes
+    organization bylines and email lines so an author is not swallowed into the
+    title. Embedded PDF metadata (read_pdf_metadata) should be preferred when
+    available; this is the fallback.
+    """
     text = txt_path.read_text(errors="replace")
-    # First 3000 chars usually contain title/authors before first section
+    # First 3000 chars usually contain title/authors before the first section.
     head = text[:3000]
     lines = [l.strip() for l in head.split("\n") if l.strip()]
 
-    # Skip page markers and obvious noise
+    # Skip page markers and obvious noise.
     filtered = []
     for l in lines:
         if re.match(r"^=====", l):
             continue
-        # Skip date-looking lines (e.g. "August 4, 2025")
+        # Skip date-looking lines (e.g. "August 4, 2025").
         if re.match(r"^[A-Z][a-z]+ \d+, \d{4}$", l):
             continue
-        # Skip URL lines
+        # Skip URL lines.
         if l.startswith("http://") or l.startswith("https://"):
             continue
-        # Skip lines that are mostly digits/symbols (chart data leaking in)
+        # Skip lines that are mostly digits/symbols (chart data leaking in).
         digit_ratio = sum(1 for c in l if c.isdigit()) / max(len(l), 1)
         if digit_ratio > 0.4 and len(l) < 40:
             continue
         filtered.append(l)
 
-    title = filtered[0] if filtered else ""
-    authors = filtered[1] if len(filtered) > 1 else ""
+    if not filtered:
+        return "", ""
 
-    # Heuristic: if 'authors' line looks like numeric / coords or very short, skip
-    if re.match(r"^[\d\s.,/()-]+$", authors) or len(authors) < 4:
+    # Assemble a possibly multi-line title: keep joining while the last line
+    # ends in a connective and the next line is not an author/affiliation.
+    title_lines = [filtered[0]]
+    i = 1
+    while (i < len(filtered)
+           and _TITLE_CONNECTIVE_RE.search(title_lines[-1])
+           and not _NON_TITLE_RE.search(filtered[i])):
+        title_lines.append(filtered[i])
+        i += 1
+    title = " ".join(title_lines)
+
+    # The next line after the title is the best author candidate.
+    authors = filtered[i] if i < len(filtered) else ""
+    if "@" in authors:                                   # email line, not a byline
         authors = ""
-
-    # If the title is suspiciously short, try next line
-    if title and len(title) < 8 and len(filtered) > 1:
-        title = filtered[1]
-        authors = filtered[2] if len(filtered) > 2 else ""
+    elif re.match(r"^[\d\s.,/()-]+$", authors):          # coordinate/numeric noise
+        authors = ""
+    elif len(authors) < 4 and not _ORG_AUTHOR_RE.search(authors):
+        authors = ""
 
     return title, authors
 
@@ -798,7 +904,10 @@ def handle_arxiv(arxiv_id: str, out_dir: Path, refresh: bool, quiet: bool):
         figures = extract_figures_pdf(pdf_path, out_dir, quiet)
         figs_json = out_dir / "figures.json"
         figs_json.write_text(json.dumps(figures, indent=2, ensure_ascii=False))
-        title, authors = extract_title_authors_pdf(txt_path)
+        meta_title, meta_authors = read_pdf_metadata(pdf_path)
+        text_title, text_authors = extract_title_authors_pdf(txt_path)
+        title = meta_title or text_title
+        authors = meta_authors or text_authors
         sections = parse_sections_pdf(txt_path)
 
     # Keep the original paper alongside the note (the HTML path skips the PDF; fetch it once).
@@ -864,7 +973,11 @@ def handle_pdf(pdf_path_or_url: str, is_url: bool, out_dir: Path,
     figs_json.write_text(json.dumps(figures, indent=2, ensure_ascii=False))
     log(f"  figures.json: {len(figures)} entries", quiet)
 
-    title, authors = extract_title_authors_pdf(txt_path)
+    # Prefer embedded PDF metadata (usually exact); fall back to first-page text.
+    meta_title, meta_authors = read_pdf_metadata(pdf_path)
+    text_title, text_authors = extract_title_authors_pdf(txt_path)
+    title = meta_title or text_title
+    authors = meta_authors or text_authors
     sections = parse_sections_pdf(txt_path)
     extracted_text = txt_path.read_text(errors="replace")
     author_repo = detect_author_repo(extracted_text)
