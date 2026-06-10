@@ -37,7 +37,7 @@ Paper's move:
 Payoff / boundary:
 ```
 
-Every visible section should serve that outline. If a section adds facts but does not improve the reader's grasp of the outline, shorten it or move the detail to Q&A/code refs.
+The outline sets the through-line: emphasis and order. It does NOT decide coverage. Coverage comes from the contribution inventory in step 2. The outline lets you shorten off-through-line material and push detail to Q&A or code refs; it never licenses dropping a contribution the paper actually makes. Trim decoration, not contributions. A real contribution that sits outside the outline's story still gets its own method subsection or results block, just a shorter one.
 
 ## Writing Style
 
@@ -95,17 +95,26 @@ python3 scripts/extract.py <input> --out /tmp/yomitoki/<paper-slug>/
 
 Inputs: arXiv URL/ID, local PDF, PDF URL. Outputs include `extracted.txt`, `figures/`, `figures.json`, and a skeleton `analysis.json`.
 
-### 2. Read for the Story
+Do two passes in order: first an inventory (decides coverage), then the spine (decides emphasis). Keeping these separate is what stops the five-line outline from silently dropping a real contribution that does not fit the chosen story.
 
-Read enough of the paper to fill the private five-line outline. Then scan:
+**Pass A, contribution inventory (coverage).** Before writing the outline, list every contribution-bearing unit the paper has:
+
+1. Copy the paper's own stated contributions verbatim, usually a numbered list at the end of the introduction or in the abstract.
+2. Walk the section headings and add any section that introduces its own mechanism, algorithm, training or inference system, or a distinct result, even if it is far from the headline.
+
+For each inventory item, mark **cover deeply / cover briefly / omit** with a one-line reason. Default to covering anything the authors list as a contribution or that has its own method or results. Only omit true boilerplate: related-work surveys you have already folded in, reproducibility appendices, acknowledgments. A multi-part systems or model paper usually has contributions in architecture, training, post-training, infrastructure, AND evaluation; an architecture-heavy read must not swallow the training, post-training, or systems contributions. If the paper's headline is one theme (e.g. efficiency), that theme sets emphasis, not the boundary of what exists.
+
+**Pass B, five-line spine (emphasis).** Now fill the private outline (Problem / Old way / Failure mode / Paper's move / Payoff). The spine orders and weights the inventory; it does not prune it.
+
+Then scan for detail:
 
 - Introduction for motivation and failure mode.
 - Method for the actual mechanism.
-- Experiments for the regime where it wins or fails.
+- Experiments for the regime where it wins or fails, and for comparison against the baselines the paper actually reports (including closed or proprietary systems, not only the authors' own prior models).
 - Figures/tables for the few visuals worth carrying into the note.
 - Repository or code link for implementation refs.
 
-Do not start by filling every schema field. Start by deciding what the reader must understand.
+Do not start by filling every schema field. Start by deciding what the reader must understand, and from the inventory, what the note must cover.
 
 ### 3. Author `analysis.json`
 
@@ -168,6 +177,8 @@ Before calling the note done, read the TL;DR, Overview, and first method subsect
 - Are the strongest numbers tied to the regime where they apply?
 - Are code refs real and line-specific when a repo exists?
 - Did any section become a checklist rather than an explanation?
+
+Then run a **coverage pass** against the step-2 inventory. For every item marked "cover", confirm it actually appears in the note (a method subsection, a results row or table, or a named paragraph). For every "omit", confirm the reason still holds. An item in the paper's own contribution list that is absent from the note is a bug: add it before shipping. `assemble.py --check` validates structure, not coverage, so this is the only gate that catches a dropped contribution.
 
 If the answer is no, revise the prose first. The checker cannot judge taste.
 

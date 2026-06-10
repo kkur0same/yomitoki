@@ -12,6 +12,20 @@ A finished note answers five questions:
 4. Where does it win, by how much, and where does it stop winning?
 5. How would I start implementing or verifying it?
 
+## See it in action
+
+An annotated tour of one rendered note (the [online-softmax example](examples/online-softmax/index.html)):
+
+![Anatomy of a Yomitoki note: a header with paper metadata and tags, a draggable Pomodoro focus timer, a prerequisites block pairing beginner-friendly and primary sources per concept, a section table of contents, and inline code references.](docs/yomitoki1.png)
+
+*Anatomy: header metadata and tags, a draggable focus timer, prerequisites (a beginner intro plus the primary source per concept), the section map, and inline code refs.*
+
+![Code and diagrams in a note: runnable in-page Python snippets that turn equations into concrete code, a Mermaid reduction-tree diagram visualizing data flow, and external code pointers citing real source code at exact line ranges.](docs/yomitoki2.png)
+
+*Method detail: runnable Python snippets that turn the equations into code, Mermaid schematics for structure and flow, and external pointers into the real implementation at exact line ranges.*
+
+**▶ Try it live:** [open the online-softmax note rendered](https://htmlpreview.github.io/?https://github.com/kkur0same/yomitoki/blob/main/examples/online-softmax/index.html) (math via KaTeX, diagrams via Mermaid). This link works once the repo is public; until then, clone and open `examples/online-softmax/index.html` in a browser.
+
 ## What it produces
 
 A single `index.html` (plus `styles.css`, `main.js`, and curated `figures/`) containing: header metadata, prerequisites, TL;DR, paper overview, a verified tech-lineage timeline, a code-augmented core-method section, experiments, a methods comparison, limitations, and a Q&A + quiz. KaTeX renders math; Mermaid renders schematics when the paper warrants one.
@@ -78,6 +92,11 @@ Open the resulting `yomitoki-out/my-paper/index.html` in a browser.
 | `references/code-ref-waterfall.md` | How to source and anchor code references. |
 | `references/diagrams.md` | Figure curation and Mermaid safety. |
 | `assets/` | `styles.css` and `main.js` copied into each note. |
+| `examples/` | Rendered sample notes (see [`examples/README.md`](examples/README.md)). |
+
+## Examples
+
+[`examples/`](examples/) holds rendered reading notes as reference output. Start with [`examples/online-softmax/index.html`](examples/online-softmax/index.html) (open in a browser).
 
 ## Requirements
 
