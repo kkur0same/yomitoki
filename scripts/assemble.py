@@ -1283,173 +1283,6 @@ def fix_mermaid_blocks(body_html: str) -> str:
 # Main assembler
 # ---------------------------------------------------------------------------
 
-def validate_schema(a: dict, coderefs_raw) -> list[str]:
-    """Validate the SHAPE of analysis.json / coderefs.json before rendering.
-
-    Returns a list of human-readable error strings (empty == OK). This catches
-    the type/field mistakes that otherwise crash the block builders mid-render
-    (e.g. related_work.closest_with_delta as a string, limitations as strings,
-    coderefs as a bare list) and the silent-empty mistakes the post-render
-    checks miss (e.g. a quiz item whose answer is under "a" instead of
-    "model_answer", which renders a blank "Model answer."). All problems are
-    collected and reported at once instead of failing on the first.
-    """
-    errs = []
-
-    def want(cond, msg):
-        if not cond:
-            errs.append(msg)
-
-    want(isinstance(a.get("title"), str) and a.get("title"),
-         'title: must be a non-empty string')
-
-    want(isinstance(a.get("tldr"), (dict, str)),
-         'tldr: must be an object {summary} or a string')
-
-    ov = a.get("paper_overview")
-    if ov is not None:
-        want(isinstance(ov, dict), 'paper_overview: must be an object')
-        if isinstance(ov, dict):
-            want(isinstance(ov.get("contributions", []), list),
-                 'paper_overview.contributions: must be a list')
-
-    tl = a.get("tech_timeline")
-    if tl is not None:
-        want(isinstance(tl, list) and tl, 'tech_timeline: must be a non-empty list')
-        if isinstance(tl, list):
-            want(any(isinstance(n, dict) and n.get("current") for n in tl),
-                 'tech_timeline: exactly one node needs "current": true')
-
-    ms = a.get("method_subsections")
-    if ms is not None:
-        want(isinstance(ms, list), 'method_subsections: must be a list')
-        for i, s in enumerate(ms or []):
-            want(isinstance(s, dict) and (s.get("body_html_file") or s.get("body_html")),
-                 f'method_subsections[{i}]: needs "body_html_file" or "body_html"')
-
-    rw = a.get("related_work")
-    if isinstance(rw, dict) and "closest_with_delta" in rw:
-        want(isinstance(rw["closest_with_delta"], dict),
-             'related_work.closest_with_delta: must be an OBJECT '
-             '{title, year, key_delta}, not a string')
-
-    lims = a.get("limitations")
-    if lims is not None:
-        want(isinstance(lims, list), 'limitations: must be a list')
-        for i, l in enumerate(lims or []):
-            want(isinstance(l, dict) and isinstance(l.get("limit"), str) and l.get("limit"),
-                 f'limitations[{i}]: must be an OBJECT with a non-empty "limit" '
-                 '(and ideally "softening"), not a string')
-
-    for i, q in enumerate(a.get("qa", []) or []):
-        want(isinstance(q, dict) and q.get("q") and q.get("a"),
-             f'qa[{i}]: needs non-empty "q" and "a"')
-
-    for i, q in enumerate(a.get("quiz", []) or []):
-        if not isinstance(q, dict):
-            errs.append(f'quiz[{i}]: must be an object')
-            continue
-        want(q.get("q"), f'quiz[{i}]: needs a non-empty "q"')
-        want(q.get("model_answer"),
-             f'quiz[{i}]: needs a non-empty "model_answer" '
-             '(the field is "model_answer", not "a" as in qa)')
-
-    for i, fig in enumerate(a.get("paper_figures", []) or []):
-        want(isinstance(fig, dict) and fig.get("src") and fig.get("caption"),
-             f'paper_figures[{i}]: needs "src" and "caption"')
-
-    if isinstance(coderefs_raw, list):
-        errs.append('coderefs.json: top level must be an object {"refs": [...]}, '
-                    'not a bare list')
-    elif isinstance(coderefs_raw, dict) and isinstance(coderefs_raw.get("refs"), list):
-        for i, r in enumerate(coderefs_raw["refs"]):
-            want(isinstance(r, dict) and r.get("section") and r.get("url"),
-                 f'coderefs.refs[{i}]: needs "section" and "url"')
-
-    return errs
-
-
-# Correctly-shaped empty templates emitted by --scaffold. They pass
-# validate_schema as-is, so authors edit known-good structure instead of
-# rediscovering field names by trial and error.
-SCAFFOLD_ANALYSIS = {
-    "title": "TODO paper title",
-    "authors": "TODO authors",
-    "venue": "TODO venue",
-    "year": 2025,
-    "subtitle": "TODO one concrete sentence",
-    "difficulty": 3,
-    "difficulty_label": "TODO name what is hard",
-    "estimated_reading_time": "15 min",
-    "tags": ["todo"],
-    "paper_url": "TODO",
-    "author_repo": None,
-    "prerequisites": [
-        {"term": "TODO", "brief": "TODO", "beginner_link": "TODO",
-         "beginner_title": "TODO", "primary_link": "TODO", "primary_title": "TODO"}
-    ],
-    "tldr": {"summary": "TODO 2-3 sentences: bottleneck, mechanism, strongest payoff."},
-    "paper_overview": {
-        "problem": "TODO", "background": "TODO", "solution": "TODO",
-        "contributions": ["TODO"]
-    },
-    "tech_timeline": [
-        {"year": 2024, "label": "TODO predecessor", "delta": "TODO one change"},
-        {"year": 2025, "label": "TODO this paper", "current": True, "delta": "TODO"}
-    ],
-    "method_subsections": [
-        {"title": "TODO subsection", "body_html_file": "sections/01-todo.html"}
-    ],
-    "experiments_setup_summary": "TODO",
-    "main_results": {
-        "headline": "TODO",
-        "table": {"headers": ["TODO"], "rows": [["TODO"]], "highlight_row": 0},
-        "ablations": ["TODO"]
-    },
-    "related_work": {
-        "closest_with_delta": {"title": "TODO", "year": 2024, "key_delta": "TODO"}
-    },
-    "limitations": [{"limit": "TODO", "softening": "TODO"}],
-    "use_cases": ["TODO"],
-    "open_questions": ["TODO"],
-    "paper_figures": [],
-    "qa": [{"type": "principle", "q": "TODO?", "a": "TODO"}],
-    "quiz": [{"q": "TODO?", "model_answer": "TODO"}]
-}
-SCAFFOLD_CODEREFS = {
-    "refs": [
-        {"section": "method", "source": "author_repo", "title": "TODO",
-         "repo": "owner/repo", "path": "path/to/file",
-         "url": "https://github.com/owner/repo/blob/main/file#L1-L20",
-         "anchor_phrase": "the mechanism this code implements",
-         "snippet": "# TODO short preview", "note": "TODO why this ref matters"}
-    ]
-}
-
-
-def write_scaffold(out_dir: Path):
-    """Emit correctly-shaped empty analysis.json + coderefs.json (and a stub
-    method section) so authors start from valid structure."""
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "sections").mkdir(exist_ok=True)
-    (out_dir / "analysis.json").write_text(
-        json.dumps(SCAFFOLD_ANALYSIS, indent=2, ensure_ascii=False), encoding="utf-8")
-    (out_dir / "coderefs.json").write_text(
-        json.dumps(SCAFFOLD_CODEREFS, indent=2, ensure_ascii=False), encoding="utf-8")
-    stub = out_dir / "sections" / "01-todo.html"
-    if not stub.exists():
-        # Include the example coderef's anchor_phrase so the scaffold passes
-        # --check out of the box.
-        stub.write_text(
-            "<p>TODO method subsection body. Describe the mechanism this code "
-            "implements so the code reference has a prose anchor.</p>\n",
-            encoding="utf-8")
-    print(f"Scaffold written to {out_dir}/:")
-    print("  analysis.json   (correctly-shaped, fill the TODO fields)")
-    print("  coderefs.json   ({\"refs\": [...]} shape)")
-    print("  sections/01-todo.html")
-
-
 def assemble(
     analysis_path: Path,
     coderefs_path: Path,
@@ -1488,20 +1321,6 @@ def assemble(
     print(f"Loading coderefs: {coderefs_path}")
     with open(coderefs_path, encoding="utf-8") as f:
         coderefs = json.load(f)
-
-    # Fail fast on shape errors with ALL problems at once, before the block
-    # builders touch the data and crash on the first bad field.
-    schema_errors = validate_schema(a, coderefs)
-    if schema_errors:
-        print("\n" + "=" * 60)
-        print("  SCHEMA VALIDATION FAILED")
-        print("=" * 60)
-        for e in schema_errors:
-            print(f"  [FAIL] {e}")
-        print("=" * 60)
-        print(f"  {len(schema_errors)} problem(s); fix analysis.json / coderefs.json "
-              "and re-run.\n")
-        sys.exit(1)
 
     # Three accepted shapes for coderefs.json:
     #   1. {"sections": {"method": [refs], "online": [refs], ...}}
@@ -2004,23 +1823,17 @@ def main():
     parser = argparse.ArgumentParser(
         description="Assemble a yomitoki HTML reader from analysis + coderefs + figures + assets."
     )
-    parser.add_argument("--analysis", help="Path to analysis.json")
-    parser.add_argument("--coderefs", help="Path to coderefs.json")
+    parser.add_argument("--analysis", required=True, help="Path to analysis.json")
+    parser.add_argument("--coderefs", required=True, help="Path to coderefs.json")
     parser.add_argument(
         "--figures", default=None, help="Directory containing figure PNGs"
     )
     parser.add_argument(
         "--assets",
+        required=True,
         help="Directory containing styles.css and main.js",
     )
     parser.add_argument("--out", required=True, help="Output directory")
-    parser.add_argument(
-        "--scaffold",
-        action="store_true",
-        help="Write correctly-shaped empty analysis.json + coderefs.json (and a "
-             "stub method section) to --out and exit, so authoring starts from "
-             "valid structure. Ignores --analysis/--coderefs/--assets.",
-    )
     parser.add_argument(
         "--check",
         action="store_true",
@@ -2030,15 +1843,6 @@ def main():
              "and exit non-zero on any hard failure.",
     )
     args = parser.parse_args()
-
-    if args.scaffold:
-        write_scaffold(Path(args.out))
-        return
-
-    missing = [f"--{n}" for n in ("analysis", "coderefs", "assets")
-               if not getattr(args, n)]
-    if missing:
-        parser.error("the following arguments are required: " + ", ".join(missing))
 
     analysis_path = Path(args.analysis)
     coderefs_path = Path(args.coderefs)
