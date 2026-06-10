@@ -24,7 +24,7 @@ An annotated tour of one rendered note (the [online-softmax example](examples/on
 
 *Method detail: runnable Python snippets that turn the equations into code, Mermaid schematics for structure and flow, and external pointers into the real implementation at exact line ranges.*
 
-**▶ Try it live:** [open the online-softmax note rendered](https://kkur0same.github.io/yomitoki/examples/online-softmax/index.html) (math via KaTeX, diagrams via Mermaid). Served by GitHub Pages, so all scripts run exactly as they do locally. If the link 404s, enable Pages once: **Settings → Pages → Deploy from a branch → `main` / `/ (root)`**.
+**▶ Check out the live demo:** [open the online-softmax note rendered](https://kkur0same.github.io/yomitoki/examples/online-softmax/index.html).
 
 ## What it produces
 
@@ -32,21 +32,22 @@ A single `index.html` (plus `styles.css`, `main.js`, and curated `figures/`) con
 
 ## How it works
 
-The pipeline is two scripts plus a model-authored intermediate JSON:
+The pipeline is two scripts plus model-authored working files:
 
 ```
 paper (arXiv / PDF)
    │   scripts/extract.py
    ▼
 extracted.txt + figures/ + figures.json + skeleton analysis.json
-   │   you (or an agent) author analysis.json + coderefs.json + sections/*.html
+   │   you (or an agent) author coverage.md, compact analysis.json,
+   │   coderefs.json, and sections/*.html
    ▼
    │   scripts/assemble.py --check
    ▼
 index.html  (self-contained reading note)
 ```
 
-`extract.py` pulls text and figures from the paper. A human or an agent then authors `analysis.json` (the note's content) and `coderefs.json` (code references), following the contracts in [`references/`](references/). `assemble.py` renders everything to HTML and validates it with `--check` (anchor phrases, figure references, KaTeX delimiters, timeline, and more).
+`extract.py` pulls text and figures from the paper. A human or an agent then writes `coverage.md` as the section plan and coverage ledger, keeps `analysis.json` compact, puts long prose in `sections/*.html`, and records code pointers in `coderefs.json`. `assemble.py` renders everything to HTML and validates it with `--check` (anchor phrases, figure references, KaTeX delimiters, timeline, and more).
 
 ## Use as a Claude Code skill
 
@@ -66,8 +67,8 @@ pip install -r requirements.txt          # pypdf, pymupdf; pandoc optional
 # 1. Extract
 python3 scripts/extract.py <arxiv-url|pdf-path|pdf-url> --out /tmp/yomitoki/my-paper/
 
-# 2. Author /tmp/yomitoki/my-paper/analysis.json and coderefs.json
-#    (see references/authoring-guide.md and references/code-ref-waterfall.md)
+# 2. Author coverage.md, compact analysis.json, sections/*.html, and coderefs.json
+#    (see SKILL.md and references/code-ref-waterfall.md)
 
 # 3. Assemble + validate
 python3 scripts/assemble.py \
@@ -88,7 +89,6 @@ Open the resulting `yomitoki-out/my-paper/index.html` in a browser.
 | `SKILL.md` | Skill definition and authoring workflow the agent follows. |
 | `scripts/extract.py` | Paper extraction: text, figures, skeleton `analysis.json`. |
 | `scripts/assemble.py` | HTML rendering and `--check` validation (stdlib only). |
-| `references/authoring-guide.md` | `analysis.json` field contract and writing bar. |
 | `references/code-ref-waterfall.md` | How to source and anchor code references. |
 | `references/diagrams.md` | Figure curation and Mermaid safety. |
 | `assets/` | `styles.css` and `main.js` copied into each note. |

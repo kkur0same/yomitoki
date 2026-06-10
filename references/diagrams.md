@@ -11,10 +11,13 @@ Selection is semantic, not quota-based:
 - Read the surrounding paper text and inspect the image before selecting it.
 - Put a figure in the section whose concept it explains. A benchmark plot belongs in Experiments, not Core Method, even if the method section needs a visual.
 - Do not treat "first method figure with no anchor" as a gap-filler. That renderer behavior is only for a true method overview or architecture figure.
+- Do not relabel a non-architecture plot as an architecture diagram. If the paper has no architecture figure, add a faithful Mermaid schematic or skip the visual.
+- Do not include visually duplicate figures unless each adds a distinct condition, metric, or viewpoint.
+- Before selecting, write a one-line placement reason (`Figure X -> method/attention: shows tensor flow through the module`). No reason, no figure.
 - If the paper figure is dense but relevant, keep it and add a simpler Mermaid diagram nearby. If the paper figure is irrelevant to the current paragraph, do not use it there.
 - Prefer no paper figure over a misleading figure.
 
-Shape, caption format, keep/skip rules, and `anchor_section` placement: `references/authoring-guide.md` -> Figures.
+Shape, caption format, keep/skip rules, and `anchor_section` placement: `SKILL.md` -> `analysis.json` Contract -> Figures.
 
 ## Mermaid diagrams
 

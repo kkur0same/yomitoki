@@ -108,6 +108,42 @@ def _find_outside_math(text: str, term: str) -> int:
         start = idx + 1
 
 
+def _math_prefix_in_parent(node) -> str:
+    """Concatenate the text that precedes `node` within its parent element.
+
+    A single text node carries no record of math opened in an earlier inline
+    node, so an equation like ``\\( x <em>a</em> y \\)`` looks "closed" when the
+    scanner reaches the bare ``a`` node and would wrap a term sitting inside the
+    equation. Prepending this prefix lets `_find_outside_math` see the open
+    ``\\(`` and refuse the match. Duck-types NavigableString/Comment via the
+    absence of a tag `name`, so it needs no bs4 import here.
+    """
+    parent = getattr(node, "parent", None)
+    if parent is None:
+        return ""
+    chunks = []
+    for s in parent.descendants:
+        if s is node:
+            break
+        if getattr(s, "name", None) is None:  # NavigableString / Comment
+            chunks.append(str(s))
+    return "".join(chunks)
+
+
+def _find_outside_math_with_prefix(node, text: str, term: str) -> int:
+    """`_find_outside_math` for a single inline text node, accounting for math
+    opened in earlier sibling nodes. Returns the term offset *within* `text`, or
+    -1 if the only occurrences fall inside an open equation (or don't exist)."""
+    prefix = _math_prefix_in_parent(node)
+    if not prefix:
+        return _find_outside_math(text, term)
+    idx = _find_outside_math(prefix + text, term)
+    if idx < len(prefix):
+        # Match (if any) lies in an earlier node or inside still-open math.
+        return -1
+    return idx - len(prefix)
+
+
 def _wrap_jargon(html_str: str, jargon: dict) -> str:
     """
     For each term in jargon dict, wrap the FIRST occurrence (case-sensitive)
@@ -119,7 +155,7 @@ def _wrap_jargon(html_str: str, jargon: dict) -> str:
         return html_str
 
     try:
-        from bs4 import BeautifulSoup, NavigableString
+        from bs4 import BeautifulSoup
     except ImportError:
         # bs4 not available — return unchanged
         return html_str
@@ -155,7 +191,8 @@ def _wrap_jargon(html_str: str, jargon: dict) -> str:
                 continue
 
             # Replace first occurrence that is NOT inside a KaTeX math span
-            idx = _find_outside_math(text, term)
+            # (including an equation opened in an earlier inline node).
+            idx = _find_outside_math_with_prefix(text_node, text, term)
             if idx == -1:
                 continue
             before = text[:idx]
@@ -241,10 +278,7 @@ def build_block1_header(a: dict) -> str:
     )
 
     # Header figures (anchor_section == "header")
-    header_figs_html = ""
-    for fig in a.get("paper_figures", []):
-        if fig.get("anchor_section") == "header":
-            header_figs_html += _figure_html(fig)
+    header_figs_html = _anchor_figs_html(a, "header")
 
     subtitle_html = f"\n    <p class=\"subtitle\">{esc(subtitle)}</p>" if subtitle else ""
 
@@ -521,6 +555,44 @@ def _anchor_figs_html(a: dict, section_id: str) -> str:
     return out
 
 
+def _data_table(
+    headers: list,
+    rows: list,
+    highlight_row=None,
+    *,
+    table_class: str = "results-table",
+    cell_esc=esc,
+    bold_first: bool = False,
+) -> str:
+    """Render one HTML table. Single source for every tabular block so the
+    main-results, methods-comparison, and where-this-matters tables can't drift
+    apart. `cell_esc` keeps each block's escaping policy explicit (plain `esc`
+    vs. inline-tag-preserving `esc_inline`); `bold_first` bolds the first column.
+    Returns '' when there are no headers."""
+    if not headers:
+        return ""
+    thead = "".join(f"<th>{esc(h)}</th>" for h in headers)
+    body = ""
+    for i, row in enumerate(rows):
+        cls = ' class="highlight"' if highlight_row is not None and i == highlight_row else ""
+        cells = ""
+        for j, cell in enumerate(row):
+            c = cell_esc(str(cell))
+            if bold_first and j == 0:
+                c = f"<strong>{c}</strong>"
+            cells += f"<td>{c}</td>"
+        body += f"\n          <tr{cls}>{cells}</tr>"
+    cls_attr = f' class="{table_class}"' if table_class else ""
+    return f"""
+      <table{cls_attr}>
+        <thead>
+          <tr>{thead}</tr>
+        </thead>
+        <tbody>{body}
+        </tbody>
+      </table>"""
+
+
 def build_block5b_where_this_matters(a: dict) -> str:
     """Block 5b — Where this matters (OPTIONAL).
 
@@ -547,24 +619,14 @@ def build_block5b_where_this_matters(a: dict) -> str:
 
     intro_html = f"<p class=\"section-intro\">{esc_inline(intro)}</p>" if intro else ""
 
-    rows_html = ""
-    for it in items:
-        workload = esc_inline(it.get("workload", ""))
-        scale    = esc_inline(it.get("scale", ""))
-        impact   = esc_inline(it.get("impact", ""))
-        rows_html += (
-            f"<tr><td><strong>{workload}</strong></td>"
-            f"<td>{scale}</td><td>{impact}</td></tr>"
-        )
-
-    table_html = ""
-    if rows_html:
-        table_html = (
-            "<table>"
-            "<thead><tr><th>Workload</th><th>Scale</th><th>Impact</th></tr></thead>"
-            f"<tbody>{rows_html}</tbody>"
-            "</table>"
-        )
+    rows = [
+        [it.get("workload", ""), it.get("scale", ""), it.get("impact", "")]
+        for it in items
+    ]
+    table_html = _data_table(
+        ["Workload", "Scale", "Impact"], rows,
+        table_class="", cell_esc=esc_inline, bold_first=True,
+    ) if rows else ""
 
     return f"""
     <!-- ══ BLOCK 5b — WHERE THIS MATTERS (optional) ════════════════════════ -->
@@ -581,7 +643,10 @@ def _mark_why_callouts(body_html: str) -> str:
     a plain paragraph. The authoring rule keeps the simple `<p><strong>Why X?</strong> …</p>`
     shape — this pass just labels them for the renderer.
     """
-    from bs4 import BeautifulSoup
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        return body_html  # bs4 optional — leave callouts unlabeled
     soup = BeautifulSoup(body_html, "html.parser")
     for p in soup.find_all("p"):
         first_tag = p.find(True, recursive=False)
@@ -607,7 +672,10 @@ def _insert_figure_at_phrase(body_html: str, phrase: str, fig_html: str) -> tupl
     structure are ignored), and elements nested inside <pre>/<code> are skipped
     so we don't break a code block.
     """
-    from bs4 import BeautifulSoup
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        return body_html, False  # bs4 optional — caller falls back to append
     soup = BeautifulSoup(body_html, "html.parser")
     for el in soup.find_all(["p", "ul", "ol", "table", "h4", "h5", "blockquote"]):
         if phrase in el.get_text() and not el.find_parent(["pre", "code"]):
@@ -688,11 +756,19 @@ def build_block6_method(a: dict) -> str:
                 placed_fig_ids.add(fid)
 
         # On the last subsection, append any figures that still didn't find an
-        # anchor phrase anywhere in the body.
+        # anchor phrase anywhere in the body. A figure that HAD an anchor_phrase
+        # but never matched is a silent misplacement: warn so the author can fix
+        # the phrase, mirroring the code-anchor warning.
         if sub_idx == last_subs_idx:
             for fig in method_figs:
                 fid = id(fig)
                 if fid not in placed_fig_ids:
+                    phrase = fig.get("anchor_phrase")
+                    if phrase:
+                        print(f"  [warn] figure {fig.get('id') or fig.get('src')!r}: "
+                              f"anchor_phrase {phrase!r} not found in any method "
+                              f"subsection; appended at the end instead — check it "
+                              f"appears verbatim as plain prose")
                     fig_html += _figure_html(fig)
                     placed_fig_ids.add(fid)
 
@@ -734,27 +810,9 @@ def build_block7_experiments(a: dict) -> str:
     setup_html = f"<p>{esc(setup)}</p>\n" if setup else ""
 
     # Results table
-    headers = table.get("headers", [])
-    rows = table.get("rows", [])
-    highlight_row = table.get("highlight_row")
-
-    thead_html = "".join(f"<th>{esc(h)}</th>" for h in headers)
-    tbody_html = ""
-    for i, row in enumerate(rows):
-        cls = ' class="highlight"' if i == highlight_row else ""
-        cells = "".join(f"<td>{esc(str(cell))}</td>" for cell in row)
-        tbody_html += f"\n          <tr{cls}>{cells}</tr>"
-
-    table_html = ""
-    if headers:
-        table_html = f"""
-      <table class="results-table">
-        <thead>
-          <tr>{thead_html}</tr>
-        </thead>
-        <tbody>{tbody_html}
-        </tbody>
-      </table>"""
+    table_html = _data_table(
+        table.get("headers", []), table.get("rows", []), table.get("highlight_row")
+    )
 
     ablations_html = ""
     if ablations:
@@ -778,31 +836,13 @@ def build_block8_comparison(a: dict) -> str:
     """Block 8 — Methods Comparison."""
     comp = a.get("methods_comparison", {})
     headers = comp.get("headers", [])
-    rows = comp.get("rows", [])
-    highlight_row = comp.get("highlight_row")
     note = (comp.get("note") or "").strip()
     fig_html = _anchor_figs_html(a, "comparison")
 
     if not headers and not fig_html and not note:
         return ""
 
-    thead_html = "".join(f"<th>{esc(h)}</th>" for h in headers)
-    tbody_html = ""
-    for i, row in enumerate(rows):
-        cls = ' class="highlight"' if i == highlight_row else ""
-        cells = "".join(f"<td>{esc(str(cell))}</td>" for cell in row)
-        tbody_html += f"\n          <tr{cls}>{cells}</tr>"
-
-    table_html = ""
-    if headers:
-        table_html = f"""
-      <table class="results-table">
-        <thead>
-          <tr>{thead_html}</tr>
-        </thead>
-        <tbody>{tbody_html}
-        </tbody>
-      </table>"""
+    table_html = _data_table(headers, comp.get("rows", []), comp.get("highlight_row"))
 
     note_html = f'\n      <p class="comparison-note">{esc_inline(note)}</p>' if note else ""
 
@@ -1176,7 +1216,10 @@ def apply_jargon(body_html: str, jargon: dict) -> str:
 def _wrap_code_anchors(body_html: str, coderefs_sections: dict) -> str:
     """For each ref with anchor_phrase, wrap first occurrence in the matching
     <section id="..."> body with <span class="code-anchor">."""
-    from bs4 import BeautifulSoup, NavigableString
+    try:
+        from bs4 import BeautifulSoup, NavigableString
+    except ImportError:
+        return body_html  # bs4 optional — anchors stay in the sidebar only
     soup = BeautifulSoup(body_html, "html.parser")
     for section_id, refs in coderefs_sections.items():
         if not refs:
@@ -1219,7 +1262,7 @@ def _wrap_code_anchors(body_html: str, coderefs_sections: dict) -> str:
                 if _skip(text_node):
                     continue
                 text = str(text_node)
-                pos = _find_outside_math(text, phrase)
+                pos = _find_outside_math_with_prefix(text_node, text, phrase)
                 if pos < 0:
                     continue
                 before, after = text[:pos], text[pos + len(phrase):]
@@ -1370,6 +1413,24 @@ def assemble(
     if paper_src.exists():
         shutil.copy2(paper_src, out_dir / "paper.pdf")
         print("  Copied original paper: paper.pdf")
+
+    # 4b. Surface every schema problem in one pass (no "fix one, hit the next"
+    #     waves), then abort only on type mismatches that would otherwise crash
+    #     a builder with an opaque AttributeError. shape_issues catches a
+    #     wrong-typed top-level container (e.g. where_this_matters as a list);
+    #     schema_issues catches wrong/missing item keys. Empty-render and
+    #     unknown-key details are repeated by run_checks for the full report.
+    pre_issues = shape_issues(a) + schema_issues(a)
+    pre_fail = [(m, crash) for sev, m, crash in pre_issues if sev == "FAIL"]
+    if pre_fail:
+        print("\n  [schema] analysis.json problems to fix:", file=sys.stderr)
+        for m, _crash in pre_fail:
+            print(f"    - {m}", file=sys.stderr)
+        if any(crash for _m, crash in pre_fail):
+            print("  The type errors above would crash a builder; aborting. "
+                  "Fix them (objects vs. lists, documented keys) and re-run.",
+                  file=sys.stderr)
+            sys.exit(1)
 
     # 5. Build HTML blocks
     jargon = a.get("jargon", {})
@@ -1525,6 +1586,20 @@ def _walk_strings(obj, path=""):
             yield from _walk_strings(v, f"{path}[{i}]")
 
 
+_CODE_OR_COMMENT_RE = re.compile(
+    r"<pre\b.*?</pre>|<code\b.*?</code>|<!--.*?-->", re.DOTALL | re.IGNORECASE
+)
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _prose_only(html_str: str) -> str:
+    """Strip code blocks, HTML comments, and tags from an inlined body_html so a
+    prose-rule scan (em-dashes) sees the authored prose but not an em-dash that
+    legitimately sits inside a code sample or a Mermaid block. Prose em-dashes,
+    which the rule does target, survive the strip and are still caught."""
+    return _TAG_RE.sub("", _CODE_OR_COMMENT_RE.sub(" ", html_str))
+
+
 _IDENTITY_STRING_PATHS = {
     "title", "subtitle", "authors", "venue", "paper_url", "author_repo",
     "arxiv_id", "arxiv_url",
@@ -1544,6 +1619,240 @@ def _anchor_phrase_issue(phrase: str) -> str | None:
     if re.search(r"^\W*[A-Za-z_]\w*\W*$", phrase or ""):
         return "single identifier; anchor on surrounding prose instead"
     return None
+
+
+# ---------------------------------------------------------------------------
+# analysis.json item-schema validation
+#
+# The renderers read fixed key names from each item. When an author uses the
+# wrong key (e.g. quiz answers live under "model_answer" but Q&A answers under
+# "a"), the block renders empty and structural checks stay green. This schema
+# pins the keys each builder actually reads so misnamed fields surface instead
+# of silently dropping content. Keep `required`/`optional` in sync with the
+# corresponding build_block*() function; `aliases` maps common wrong keys to
+# the right one for a targeted "did you mean" hint.
+# ---------------------------------------------------------------------------
+
+# Q&A `type` values the renderer knows how to badge (mirrors TYPE_LABEL in
+# build_block11_qa). An unlisted type renders unbadged, so validate against it.
+_QA_TYPES = {
+    "intuition", "principle", "detail", "limit", "boundary",
+    "engineering", "extension",
+}
+
+
+def _as_dict(v):
+    """Return v if it's a dict, else {} — so a wrong-typed container (e.g.
+    where_this_matters given as a list) degrades to "no items" instead of
+    crashing the validator with AttributeError. shape_issues() reports the
+    wrong type separately with a clean message."""
+    return v if isinstance(v, dict) else {}
+
+
+def _as_list(v):
+    return v if isinstance(v, list) else []
+
+
+def _rw(a, key):
+    return _as_list(_as_dict(a.get("related_work")).get(key))
+
+
+def _closest(a):
+    c = _as_dict(a.get("related_work")).get("closest_with_delta")
+    return [c] if c else []
+
+
+_ITEM_SCHEMAS = [
+    {"path": "prerequisites[]", "get": lambda a: _as_list(a.get("prerequisites")),
+     "required": ["term", "brief"],
+     "optional": ["beginner_link", "beginner_title", "primary_link", "primary_title"],
+     "aliases": {}},
+    {"path": "tech_timeline[]", "get": lambda a: _as_list(a.get("tech_timeline")),
+     "required": ["year", "label"], "optional": ["delta", "current"],
+     "aliases": {"name": "label", "title": "label", "change": "delta"}},
+    {"path": "qa[]", "get": lambda a: _as_list(a.get("qa")),
+     "required": ["q", "a"], "optional": ["type"],
+     "enums": {"type": _QA_TYPES},
+     "aliases": {"model_answer": "a", "answer": "a", "question": "q"}},
+    {"path": "quiz[]", "get": lambda a: _as_list(a.get("quiz")),
+     "required": ["q", "model_answer"], "optional": [],
+     "aliases": {"a": "model_answer", "answer": "model_answer", "question": "q"}},
+    {"path": "limitations[]", "get": lambda a: _as_list(a.get("limitations")),
+     "required": ["limit"], "optional": ["softening"],
+     "aliases": {"text": "limit", "limitation": "limit"}},
+    {"path": "where_this_matters.items[]",
+     "get": lambda a: _as_list(_as_dict(a.get("where_this_matters")).get("items")),
+     "required": ["workload"], "optional": ["scale", "impact"],
+     "aliases": {"name": "workload", "title": "workload"}},
+    {"path": "paper_figures[]", "get": lambda a: _as_list(a.get("paper_figures")),
+     "required": ["src", "caption"],
+     "optional": ["id", "anchor_section", "anchor_phrase"],
+     "aliases": {"image": "src", "path": "src", "file": "src"}},
+    {"path": "related_work.foundational[]", "get": lambda a: _rw(a, "foundational"),
+     "required": ["title"], "optional": ["authors", "year", "why"],
+     "aliases": {"name": "title", "delta": "why"}},
+    {"path": "related_work.comparable[]", "get": lambda a: _rw(a, "comparable"),
+     "required": ["title"], "optional": ["authors", "year", "why"],
+     "aliases": {"name": "title", "delta": "why"}},
+    {"path": "related_work.closest_with_delta", "get": _closest,
+     "required": ["title", "key_delta"], "optional": ["year", "authors", "why"],
+     "aliases": {"name": "title", "delta": "key_delta"}},
+    {"path": "method_subsections[]", "get": lambda a: _as_list(a.get("method_subsections")),
+     "required": ["title"], "optional": ["body_html", "body_html_file", "explainer", "heading"],
+     "aliases": {"name": "title", "heading": "title"}},
+]
+
+
+# Top-level fields whose JSON container type authors get wrong. A wrong type
+# here crashes a builder with an opaque AttributeError (e.g. where_this_matters
+# given as a list -> `.get("items")` fails), so flag it early with a clean,
+# actionable message instead.
+_EXPECT_OBJECT = {
+    "tldr", "paper_overview", "main_results", "methods_comparison",
+    "related_work", "where_this_matters", "jargon",
+}
+_EXPECT_LIST = {
+    "prerequisites", "tech_timeline", "method_subsections", "limitations",
+    "use_cases", "open_questions", "qa", "quiz", "paper_figures", "tags",
+}
+
+
+def shape_issues(a: dict):
+    """Validate the container type of top-level fields. Returns
+    (severity, message, crash) tuples; crash=True marks a type error that would
+    abort a builder, so the early gate can stop with a clean message."""
+    issues = []
+    for k in sorted(_EXPECT_OBJECT):
+        if k in a and not isinstance(a[k], dict):
+            hint = ""
+            if k == "where_this_matters" and isinstance(a[k], list):
+                hint = ' — wrap the list as {"items": [ ... ]}'
+            issues.append((
+                "FAIL",
+                f"{k!r} must be a JSON object, got {type(a[k]).__name__}{hint}",
+                True,
+            ))
+    for k in sorted(_EXPECT_LIST):
+        if k in a and not isinstance(a[k], list):
+            issues.append((
+                "FAIL",
+                f"{k!r} must be a JSON list, got {type(a[k]).__name__}",
+                True,
+            ))
+    return issues
+
+
+def _is_empty(v):
+    if v is None:
+        return True
+    if isinstance(v, str):
+        return not v.strip()
+    if isinstance(v, (list, dict)):
+        return not v
+    return False
+
+
+# Top-level analysis.json keys the assembler actually reads, plus skeleton
+# passthrough keys (arxiv_id, sections) and documented-but-optional ones
+# (visual_notes). A key outside this set is never rendered, so content placed
+# under a misremembered name (e.g. "method_opening_html") silently disappears
+# while every structural check stays green. Warn so the author catches it.
+_KNOWN_TOP_LEVEL = {
+    # header / metadata
+    "title", "authors", "venue", "year", "subtitle", "difficulty",
+    "difficulty_label", "estimated_reading_time", "tags",
+    "paper_url", "arxiv_url", "author_repo", "arxiv_id", "paper_id",
+    # body blocks
+    "prerequisites", "tldr", "paper_overview", "tech_timeline",
+    "where_this_matters", "method_subsections", "experiments_setup_summary",
+    "main_results", "methods_comparison", "related_work", "limitations",
+    "use_cases", "open_questions", "qa", "quiz", "paper_figures", "jargon",
+    # skeleton passthrough / optional notes
+    "sections", "visual_notes",
+}
+
+# Common ways authors misremember a top-level key -> the real one.
+_TOP_LEVEL_ALIASES = {
+    "method_opening_html": "method_subsections",
+    "method_opening": "method_subsections",
+    "method": "method_subsections",
+    "subsections": "method_subsections",
+    "overview": "paper_overview",
+    "timeline": "tech_timeline",
+    "results": "main_results",
+    "comparison": "methods_comparison",
+    "figures": "paper_figures",
+    "limits": "limitations",
+}
+
+
+def top_level_issues(a: dict):
+    """Warn on top-level analysis.json keys the renderer never reads, so a
+    misnamed field surfaces instead of dropping its content silently."""
+    issues = []
+    for k in a:
+        if k in _KNOWN_TOP_LEVEL or k.startswith("_"):
+            continue
+        good = _TOP_LEVEL_ALIASES.get(k)
+        hint = (f" (did you mean {good!r}? its content is being dropped)"
+                if good else " (not read by the renderer; its content is dropped)")
+        issues.append(("WARN", f"top-level key {k!r} is not recognized{hint}", False))
+    return issues
+
+
+def schema_issues(a: dict):
+    """Validate item-bearing analysis.json blocks against the keys their
+    renderers read. Returns a list of (severity, message, crash) tuples where
+    severity is "FAIL" or "WARN" and crash is True for type mismatches that
+    would raise inside a builder (e.g. a string where an object is expected)."""
+    issues = []
+    for spec in _ITEM_SCHEMAS:
+        items = spec["get"](a)
+        if not items:
+            continue
+        known = set(spec["required"]) | set(spec.get("optional", []))
+        aliases = spec.get("aliases", {})
+        is_list = spec["path"].endswith("[]")
+        base = spec["path"][:-2] if is_list else spec["path"]
+        for i, item in enumerate(items):
+            where = f"{base}[{i}]" if is_list else base
+            if not isinstance(item, dict):
+                preview = repr(item)
+                if len(preview) > 40:
+                    preview = preview[:40] + "…"
+                issues.append((
+                    "FAIL",
+                    f"{where}: expected an object with keys {spec['required']}, "
+                    f"got {type(item).__name__} ({preview})",
+                    True,
+                ))
+                continue
+            for k in spec["required"]:
+                if _is_empty(item.get(k)):
+                    wrong = next((bad for bad, good in aliases.items()
+                                  if good == k and not _is_empty(item.get(bad))), None)
+                    hint = f" (found {wrong!r} instead, rename it to {k!r})" if wrong else ""
+                    issues.append((
+                        "FAIL",
+                        f"{where}: missing required {k!r}{hint}, this block renders empty",
+                        False,
+                    ))
+            for k in item:
+                if k in known or k.startswith("_"):
+                    continue
+                good = aliases.get(k)
+                hint = f" (did you mean {good!r}?)" if good else " (not read by the renderer)"
+                issues.append(("WARN", f"{where}: unknown key {k!r}{hint}", False))
+            for k, allowed in spec.get("enums", {}).items():
+                v = item.get(k)
+                if v and v not in allowed:
+                    issues.append((
+                        "WARN",
+                        f"{where}: {k}={v!r} is not a known value; it renders "
+                        f"unbadged (allowed: {', '.join(sorted(allowed))})",
+                        False,
+                    ))
+    return issues
 
 
 def run_checks(a: dict, coderefs_sections: dict, figures_dir, html: str) -> int:
@@ -1737,12 +2046,15 @@ def run_checks(a: dict, coderefs_sections: dict, figures_dir, html: str) -> int:
 
     # 5. Em-dashes in authored prose (hard failure — banned by the writing rules;
     #    warning-only previously let them slip through to the rendered reader).
-    em_hits = [
-        (path, s[max(0, m.start() - 25):m.end() + 25].replace("\n", " "))
-        for path, s in _walk_strings(a)
-        if path not in _IDENTITY_STRING_PATHS and not path.startswith("_")
-        for m in re.finditer("—", s)
-    ]
+    em_hits = []
+    for path, s in _walk_strings(a):
+        if path in _IDENTITY_STRING_PATHS or path.startswith("_"):
+            continue
+        # For inlined section HTML, scan prose only: an em-dash inside a code
+        # sample or Mermaid block is not authored prose and must not fail.
+        scan = _prose_only(s) if path.endswith(".body_html") else s
+        for m in re.finditer("—", scan):
+            em_hits.append((path, scan[max(0, m.start() - 25):m.end() + 25].replace("\n", " ")))
     if em_hits:
         n_fail += 1
         lines.append(("FAIL", f"em-dashes (authored) {len(em_hits)} in analysis.json:"))
@@ -1801,6 +2113,27 @@ def run_checks(a: dict, coderefs_sections: dict, figures_dir, html: str) -> int:
             lines.append(("PASS", f"jargon              {jargon_actual}/{jarg_total} wrapped ({len(safe)} only in code/aside, safe)"))
     else:
         lines.append(("PASS", f"jargon              {jargon_actual}/{jarg_total} terms wrapped"))
+
+    # 7. analysis.json item schema — misnamed/missing keys render blocks empty
+    #    while every structural check stays green. FAIL on empty-rendering
+    #    blocks, WARN on unknown keys.
+    sissues = schema_issues(a) + top_level_issues(a)
+    s_fail = [m for sev, m, _ in sissues if sev == "FAIL"]
+    s_warn = [m for sev, m, _ in sissues if sev == "WARN"]
+    if s_fail:
+        n_fail += 1
+        lines.append(("FAIL", f"analysis schema     {len(s_fail)} block(s) render empty / wrong key:"))
+        lines += [("", f"                      - {m}") for m in s_fail[:8]]
+        if len(s_fail) > 8:
+            lines.append(("", f"                      … and {len(s_fail) - 8} more"))
+    if s_warn:
+        n_warn += 1
+        lines.append(("WARN", f"analysis schema     {len(s_warn)} unknown key(s):"))
+        lines += [("", f"                      - {m}") for m in s_warn[:8]]
+        if len(s_warn) > 8:
+            lines.append(("", f"                      … and {len(s_warn) - 8} more"))
+    if not s_fail and not s_warn:
+        lines.append(("PASS", "analysis schema     all item keys recognized"))
 
     print()
     print("=" * 60)
