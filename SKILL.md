@@ -411,6 +411,10 @@ Figure candidates:       | Figure | Keep? | Anchor section | Placement reason |
 Coverage checklist:      | Paper heading | Present in note? | Where |
 ```
 
+#### Long-paper path (optional, after coverage)
+
+For a long paper (more than ~25 pages, or `extracted.txt` over ~80 KB, or more than 5 distinct method/module headings), do not keep the whole paper, every draft, and all code in context at once. Split work by kind: the main agent understands the paper and writes the sections that connect to each other (the spine) plus `analysis.json`; subagents look things up (code line ranges, result tables, figure details) and write up self-contained sections from a detailed plan the main agent fills in. Hand a step to a subagent only if it needs no judgment that depends on the rest of the paper. After assembling, the main agent must re-run `--check` (typeset sections can break code/figure anchors), review every subagent-written code demo, and read the whole note for one voice. Soft trigger; skip for shorter papers. Full procedure, the section-plan schema, the fact-finding formats, and the post-assembly checklist: `references/long-paper-path.md`.
+
 ### 3. Author Compact `analysis.json`
 
 Use the inline `analysis.json` contract above for the field contract and examples. Method subsections should point to `sections/*.html` via `body_html_file`; keep long HTML out of JSON.
@@ -485,5 +489,6 @@ If the answer is no, revise the prose first. The checker cannot judge taste.
 - `references/code-ref-waterfall.md`: code reference sourcing, line anchors, snippets.
 - `references/diagrams.md`: figure curation and Mermaid safety.
 - `references/method-example.md`: full worked module deep-dive (read when authoring the first method section).
+- `references/long-paper-path.md`: optional subagent workflow for long papers (main agent understands + writes spine; helpers look up facts and typeset self-contained sections).
 - `scripts/extract.py`: paper extraction.
 - `scripts/assemble.py`: HTML rendering and validation.
