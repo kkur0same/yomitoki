@@ -102,10 +102,11 @@ This section defines the `analysis.json` contract and the writing bar. Keep the 
 |---|---|---|
 | `qa` | list | `{"q", "a", "type"}` (not `question`/`answer`); `type` in: intuition, principle, detail, limit, engineering, extension |
 | `quiz` | list | `{"q", "model_answer"}` (not `question`/`answer`/`a`) |
-| `limitations` | list | `{"limit"}` objects (not bare strings) |
+| `limitations` | list | `{"limit"}` objects (not bare strings); optional `softening` adds an italic counterpoint line |
 | `use_cases`, `open_questions` | list | bare strings (not objects) |
 | `where_this_matters` | object | `{"items": [{"workload","scale","impact"}, ...]}` (wrap the list in `items`) |
-| `related_work.closest_with_delta` | object | `{"title", "key_delta"}` (not `delta`) |
+| `related_work` | object | optional `foundational` / `comparable` lists of `{"title","authors","year","why"}`, plus `closest_with_delta` |
+| `related_work.closest_with_delta` | object | `{"title", "year", "key_delta"}` (not `delta`) |
 | `prerequisites` | list | `{"term", "brief", ...links}` |
 | `tech_timeline` | list | `{"year", "label", "delta", "current"}` |
 | `paper_figures` | list | `{"src", "caption", "id", "anchor_section", "anchor_phrase"}` |
@@ -312,11 +313,15 @@ Use `methods_comparison` when a table helps the reader choose between methods:
 }
 ```
 
-Use `related_work.closest_with_delta` for the single closest prior: an object `{"title": "...", "key_delta": "..."}` (the field is `key_delta`, not `delta`). The key delta should be precise enough that a reader can explain why this paper was still needed.
+`related_work` renders up to three sub-blocks; each is shown only when its field is populated, so omit ones you cannot fill rather than leaving them empty:
+
+- `foundational`: list of `{"title", "authors", "year", "why"}` for prior work this paper builds on.
+- `comparable`: list of `{"title", "authors", "year", "why"}` for parallel alternatives it is measured against.
+- `closest_with_delta`: the single closest prior, `{"title": "...", "year": ..., "key_delta": "..."}` (the field is `key_delta`, not `delta`). The key delta should be precise enough that a reader can explain why this paper was still needed.
 
 #### 8. Limitations, Use Cases, Open Questions
 
-3-5 items each. `limitations` are `{"limit": "..."}` objects; `use_cases` and `open_questions` are bare strings.
+3-5 items each. `limitations` are `{"limit": "..."}` objects, each with an optional `softening` string that renders as an italic counterpoint (where the limitation is mitigated, or how later work resolved it); `use_cases` and `open_questions` are bare strings.
 
 - Limitations: assumptions, missing experiments, regimes where the method loses.
 - Use cases: concrete places to apply the idea.

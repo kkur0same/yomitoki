@@ -268,9 +268,14 @@ def build_block1_header(a: dict) -> str:
     difficulty = int(a.get("difficulty", 3))
     difficulty_label = esc(a.get("difficulty_label", ""))
     reading_time = a.get("estimated_reading_time")
+    reading_time_label = ""
+    if reading_time or reading_time == 0:
+        rt = str(reading_time).strip()
+        # bare number (e.g. 19 or "19") -> "19 min"; leave "19 min"/"12-20 min" as-is
+        reading_time_label = f"{rt} min" if rt.replace(".", "", 1).isdigit() else rt
     reading_time_html = (
-        f'<span class="reading-time">📖 {esc(reading_time)}</span>'
-        if reading_time else ""
+        f'<span class="reading-time">📖 {esc(reading_time_label)}</span>'
+        if reading_time_label else ""
     )
 
     tags_html = "".join(
@@ -872,37 +877,41 @@ def build_block9_related(a: dict) -> str:
         why = esc_inline(w.get("why", ""))
         return f"<li><strong>{title}</strong> ({authors}, {year}): {why}</li>"
 
-    found_items = "\n          ".join(_work_item(w) for w in foundational)
-    comp_items = "\n          ".join(_work_item(w) for w in comparable)
-
-    closest_title = esc(closest.get("title", ""))
-    closest_year = esc(str(closest.get("year", "")))
-    closest_delta = esc_inline(closest.get("key_delta", ""))
-
-    return f"""
-    <!-- ══ BLOCK 9 — RELATED WORK ════════════════════════════════════════════ -->
-    <section id="related" class="paper-section">
-      <h2>Related Work</h2>{fig_html}
-
+    blocks = ""
+    if foundational:
+        found_items = "\n          ".join(_work_item(w) for w in foundational)
+        blocks += f"""
       <div class="related-block">
         <p class="label">Foundational</p>
         <ul>
           {found_items}
         </ul>
-      </div>
-
+      </div>"""
+    if comparable:
+        comp_items = "\n          ".join(_work_item(w) for w in comparable)
+        blocks += f"""
       <div class="related-block">
         <p class="label">Comparable</p>
         <ul>
           {comp_items}
         </ul>
-      </div>
-
+      </div>"""
+    if closest:
+        closest_title = esc(closest.get("title", ""))
+        closest_year = esc(str(closest.get("year", "")))
+        closest_delta = esc_inline(closest.get("key_delta", ""))
+        blocks += f"""
       <div class="related-block closest">
         <p class="label">Closest with key delta</p>
         <p><strong>{closest_title}</strong> ({closest_year})</p>
         <p>{closest_delta}</p>
-      </div>
+      </div>"""
+
+    return f"""
+    <!-- ══ BLOCK 9 — RELATED WORK ════════════════════════════════════════════ -->
+    <section id="related" class="paper-section">
+      <h2>Related Work</h2>{fig_html}
+{blocks}
     </section>"""
 
 
@@ -920,10 +929,13 @@ def build_block10_limits(a: dict) -> str:
     for lim in limitations:
         limit = esc_inline(lim.get("limit", ""))
         softening = esc_inline(lim.get("softening", ""))
+        soften_html = (
+            f'\n            <p class="lim-soften"><em>{softening}</em></p>'
+            if softening else ""
+        )
         lim_items += f"""
           <li>
-            <p class="lim">{limit}</p>
-            <p class="lim-soften"><em>{softening}</em></p>
+            <p class="lim">{limit}</p>{soften_html}
           </li>"""
 
     uc_items = "".join(f"\n          <li>{esc_inline(u)}</li>" for u in use_cases)
