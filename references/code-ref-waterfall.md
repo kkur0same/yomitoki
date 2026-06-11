@@ -1,6 +1,6 @@
 # Code Reference Guide
 
-Code refs are not a quota. They are evidence and implementation handles for claims in the note.
+Code refs are not a quota. They are implementation handles for claims in the note.
 
 Use a side-panel code ref when the reader would naturally ask:
 
@@ -13,7 +13,7 @@ If a ref does not answer one of those questions, leave it out.
 
 ## Target Shape
 
-Most papers land at 4-8 refs. More is fine for code-heavy systems papers; fewer is fine when there is no real code or the method is mostly theoretical. Prefer 5 excellent claim-linked refs over 10 loose bookmarks.
+Most papers land at 4-8 refs. More is fine for code-heavy systems papers; fewer is fine for theoretical papers. Prefer a few strong claim-linked refs over many loose bookmarks.
 
 Valid `section` IDs:
 
@@ -49,7 +49,7 @@ Fields:
 
 ## Anchor Rule
 
-For method refs, `anchor_phrase` is expected. It makes the side-panel card clickable from the prose.
+For method refs, use `anchor_phrase` when possible. It makes the side-panel card clickable from the prose.
 
 Pick a phrase from the sentence where the reader would want code. Good anchors are ordinary prose:
 
@@ -64,7 +64,7 @@ Avoid:
 - math snippets: `\(QK^\top\)`
 - phrases not present verbatim in the body
 
-Treat missing anchors, dead anchors, or code-like anchors as errors even if `--check` labels some of them as warnings.
+Fix missing, dead, or code-like anchors when they make the code panel hard to use.
 
 ## Source Waterfall
 
@@ -72,7 +72,7 @@ Treat missing anchors, dead anchors, or code-like anchors as errors even if `--c
 
 Use first for the paper's own contribution when available.
 
-Find the repo from page 1, footnotes, implementation details, experiments, acknowledgments, or arXiv metadata. Filter citation noise by proximity to words like "code", "official", or "reproduce".
+Find the repo from page 1, footnotes, implementation details, experiments, acknowledgments, or arXiv metadata. Prefer links near words like "code", "official", or "reproduce".
 
 Map claims to files by reading the repo tree:
 
@@ -110,9 +110,11 @@ Use only when justified:
 2. The snippet explains a prerequisite or baseline the paper assumes.
 3. A small Python toy clarifies dense official C++, Rust, or framework code, alongside the real ref.
 
-Do not let synthesized snippets replace official implementation refs for the paper's central contribution. If an author repo exists and most cards are synthesized, the code panel is broken.
+Do not let synthesized snippets replace official implementation refs for the paper's central contribution. If an author repo exists, use it for the main method when possible.
 
 Synthesized snippets should be runnable, minimal, and visibly labeled with `source: llm_generated`.
+
+If an official or author-linked repo exists but you still use a synthesized snippet, say why in the ref note: no matching implementation found, official code is only infrastructure, the real code is too large for a sidebar preview, or the snippet is only a toy baseline. Do not use synthesized code just because it is faster to write.
 
 ## Snippet Previews
 
@@ -129,7 +131,7 @@ attention(query, key, value):
     mix values with the attention weights
 ```
 
-Never leave all author-repo snippets empty. Empty cards become bookmarks instead of reading aids.
+Never leave all author-repo snippets empty. 
 
 ## What Not To Link
 

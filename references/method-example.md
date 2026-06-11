@@ -1,8 +1,8 @@
 # Worked example: a Module deep-dive (Multi-Head Self-Attention)
 
-The canonical shape of a method subsection, in order: **architecture / data flow** (Method Opening, when the paper has more than one moving part) → then per module: **Input / Output** → **Core formula** (one or more named blocks, each with a symbol gloss and a key point) → **Code implementation** → **Design analysis** (a "Why..." callout). Use `<h4>` for the deep-dive subsections and bold paragraphs for named formula blocks, so the hierarchy is visible.
+Useful shape for a method subsection: architecture / data flow (when there is more than one moving part), then input/output, core formula, code, and design analysis. Use `<h4>` for deep-dive headings and bold paragraphs for named formula blocks.
 
-The architecture graph is the paper's own architecture figure **or** a Mermaid schematic, not both by default: when the paper has a clean architecture figure, anchor it here (a `paper_figures` entry with `anchor_section: "method"`) and skip the Mermaid; reach for Mermaid only when the paper has no usable architecture figure, or when its figure is dense enough that a simpler schematic teaches faster (then keep both). The example below shows the Mermaid path.
+Use either the paper's architecture figure or a Mermaid schematic. If the paper has a clean architecture figure, hoist it here with `anchor_section: "architecture"`. Use Mermaid when the paper has no usable figure, or when a simpler schematic teaches faster. The example below shows the Mermaid path.
 
 ```html
 <h4>Architecture / data flow</h4>

@@ -6,22 +6,35 @@ Two kinds of visuals: the paper's own figures (already extracted) and Mermaid di
 
 `extract.py` extracts them (PDF: PyMuPDF `cluster_drawings`; arXiv: HTML scrape, images load remotely). You curate into `paper_figures`.
 
-Selection is semantic, not quota-based:
+Pick figures by usefulness, not by quota:
 
 - Read the surrounding paper text and inspect the image before selecting it.
 - Put a figure in the section whose concept it explains. A benchmark plot belongs in Experiments, not Core Method, even if the method section needs a visual.
-- Do not treat "first method figure with no anchor" as a gap-filler. That renderer behavior is only for a true method overview or architecture figure.
+- **The paper's overall-architecture figure uses `anchor_section: "architecture"`.** It opens Core Method as the data-flow map. Do not put architecture or method-flow diagrams in `overview` or `motivation`; those sections should first explain the problem and the paper's move.
 - Do not relabel a non-architecture plot as an architecture diagram. If the paper has no architecture figure, add a faithful Mermaid schematic or skip the visual.
 - Do not include visually duplicate figures unless each adds a distinct condition, metric, or viewpoint.
-- Before selecting, write a one-line placement reason (`Figure X -> method/attention: shows tensor flow through the module`). No reason, no figure.
 - If the paper figure is dense but relevant, keep it and add a simpler Mermaid diagram nearby. If the paper figure is irrelevant to the current paragraph, do not use it there.
 - Prefer no paper figure over a misleading figure.
+
+When you rename curated figures, make the filename explain where the image belongs:
+
+```text
+{section-number}-{role}-{short-name}.png
+```
+
+Use roles such as `architecture`, `mechanism`, `result`, `ablation`, or `comparison`.
+
+Examples:
+
+- `03-architecture-transformer-stack.png`
+- `04-mechanism-attention-scores.png`
+- `06-result-bleu-vs-training-cost.png`
 
 Shape, caption format, keep/skip rules, and `anchor_section` placement: `SKILL.md` -> `analysis.json` Contract -> Figures.
 
 ## Mermaid diagrams
 
-Use Mermaid to visualize anything the prose can't show at a glance. A 5-node flowchart often beats 100 words of step-by-step. Reach for one whenever the verbal description of a flow, a recurrence, a parallel structure, or a memory pattern starts carrying the explanation by itself.
+Use Mermaid when a simple schematic makes the method easier to follow. A small flowchart often beats a long step-by-step paragraph.
 
 **Generate when the paper has:**
 
@@ -41,9 +54,9 @@ Use Mermaid to visualize anything the prose can't show at a glance. A 5-node flo
 - It would need > 15 nodes (unreadable).
 - You'd have to invent structure the paper doesn't state. A confident-but-wrong diagram is worse than none.
 
-**Cadence:** two to four typical, more for papers where data flow, algorithms, new architecture, training stages, or memory movement deserve pictures. For method-heavy papers, two Mermaid diagrams is the default floor. Add the first diagram early in the method section, before the reader hits formulas or implementation details. Place each diagram inside the section it explains, before its densest paragraphs.
+**Placement:** put diagrams inside the section they explain. Architecture and data-flow diagrams belong at the start of Core Method, before formulas and implementation details. Result plots belong in Experiments. Comparison diagrams belong in Comparison or Related Work.
 
-**Decision rule.** Add a Mermaid diagram when the explanation asks the reader to track three or more moving parts at once (modules, tensors, training stages, loop states, branches). Mermaid may restate a paper figure when a simpler schematic teaches faster than the original — especially if the original is dense, visually noisy, or spread across multiple panels. **Keep the paper figure too** when it carries source evidence, labels, quantitative axes, or visual detail Mermaid can't reproduce; Mermaid is the explainer, not the replacement.
+**Decision rule.** Add a Mermaid diagram when the reader must track several moving parts: modules, tensors, stages, loop states, branches, or memory movement. Skip it when prose is clearer or when the diagram would invent structure the paper does not state. Mermaid may restate a dense paper figure when a simpler schematic teaches faster. Keep the paper figure too when it carries evidence, labels, axes, or visual detail Mermaid cannot reproduce.
 
 ### Markup
 
@@ -63,7 +76,7 @@ flowchart LR
 </figure>
 ```
 
-The caption restates what the diagram shows so the reader doesn't decode it cold. `assemble.py` initializes Mermaid globally with the design-system theme and `styles.css` styles `.mermaid-figure`; you only write the block.
+The caption should say what the diagram shows. `assemble.py` initializes Mermaid and `styles.css` styles `.mermaid-figure`; you only write the block.
 
 ### Templates
 
@@ -106,7 +119,7 @@ For producer/consumer or distributed setups, box nodes with `subgraph X[Label] �
 
 ### Syntax pitfalls
 
-The block passes through BeautifulSoup and Mermaid 10. Hard rules first:
+Mermaid syntax is fragile. These patterns avoid common parse errors:
 
 - **Don't nest `[...]` inside labels.** Mermaid reads `[` and `]` as node-shape delimiters. `A["state [m,d]"]` breaks; use `A["state (m,d)"]` instead. For exact notation like `[m_1, d_1]`, put it in the caption or surrounding prose as KaTeX (`\([m_1,d_1]\)`).
 - **Use the pipe form for edge labels, not the quoted form.** Write `A -->|yes| B`, not `A -- "yes" --> B`. The quoted form parses fine for simple words but breaks the moment the label contains punctuation, escaped HTML entities, or comparison operators. The pipe form is the canonical Mermaid 10.x syntax and survives all of these.
@@ -117,7 +130,7 @@ The block passes through BeautifulSoup and Mermaid 10. Hard rules first:
 - **`<br/>` inside quoted labels** is the line break. Use as needed.
 - **When in doubt, simplify aggressively.** Mermaid's error message is always the same opaque "Syntax error in text" with a version banner; it never points at the offending character. The fastest path back to a rendering diagram is to halve the node label lengths and replace every special character with a plain word.
 
-Style preferences (not hard rules):
+Style preferences:
 
 - Keep node IDs short and scannable: `A`, `ENC`, `REDUCE1`.
 - For dense math or code-like notation, prefer KaTeX in prose around the diagram rather than long labels — labels work best for short conceptual names.

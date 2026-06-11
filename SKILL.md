@@ -66,11 +66,13 @@ The renderer expects `analysis.json`, `coderefs.json`, method section HTML files
 
 For long papers, save tokens by changing the working shape, not by weakening the note:
 
-- Persist the coverage plan to `/tmp/yomitoki/<paper-slug>/coverage.md` as the durable source of truth for contribution inventory, section plan, figure candidates, experiment map, and coverage status. (Short papers can keep this plan inline; the file earns its place only when context cannot hold the whole paper.)
+- For long or multi-pass papers, save the coverage plan to `/tmp/yomitoki/<paper-slug>/coverage.md`. 
 - Keep `analysis.json` compact: metadata, short overview fields, lists, tables, refs to `sections/*.html`, and figure/code-ref manifests. Do not put long method prose in JSON.
 - Write long explanation in `sections/*.html`, one method or result section at a time. When revising, reopen only `coverage.md`, the relevant paper excerpt, and the target section file.
-- Do not keep the whole paper, full note draft, all code refs, and all figures in active context at once. Use the coverage file to remember decisions between passes.
-- Never regenerate the whole note to fix one missing section. Patch the specific JSON field, section file, code ref, or figure entry.
+- Use the coverage file to remember decisions between passes instead of keeping the whole paper and whole note in context.
+- To fix one missing piece, patch the specific JSON field, section file, code ref, or figure entry.
+
+Token efficiency is not permission to skip unread sections. Before marking a paper section as brief or omitted, read enough of that section to know what it contains. If a long paper forces a depth tradeoff, state the tradeoff explicitly instead of silently deciding that one chapter is "secondary."
 
 ### Required Reader Sections
 
@@ -94,9 +96,9 @@ Use these only when they clarify the story:
 
 ### `analysis.json` Contract
 
-This section defines the `analysis.json` contract and the writing bar. Keep the note narrative-first; the schema supports the story.
+This section defines the `analysis.json` contract. Keep the note narrative-first; the schema supports the story.
 
-**Exact item keys (enforced by `assemble.py --check`).** These are the spots authors most often get wrong; the checker drains all mismatches in one pass and suggests the right key, but get them right up front:
+**Exact item keys.** `assemble.py --check` validates these names:
 
 | Field | Container | Each item's keys |
 |---|---|---|
@@ -111,7 +113,7 @@ This section defines the `analysis.json` contract and the writing bar. Keep the 
 | `tech_timeline` | list | `{"year", "label", "delta", "current"}` |
 | `paper_figures` | list | `{"src", "caption", "id", "anchor_section", "anchor_phrase"}` |
 
-Do not invent top-level keys: anything outside the documented set is dropped silently at render (the checker warns, but it still won't appear). For example, a method-section intro belongs in the first `method_subsections[]` entry, not a top-level `method_opening` field. For "missing value" cells in any table, write `n/a`, never an em-dash (authored em-dashes fail `--check`).
+Do not invent top-level keys. Unknown fields do not render. For example, a method-section intro belongs in the first `method_subsections[]` entry, not a top-level `method_opening` field. For missing table values, write `n/a`.
 
 #### 0. Header Metadata
 
@@ -121,7 +123,7 @@ Required:
 - `subtitle`: one concrete sentence, not a slogan
 - `difficulty`: 1-5
 - `difficulty_label`: name what is hard, e.g. `matrix calculus`, not `Advanced`
-- `estimated_reading_time`: 12-20 min. Compose it, don't guess: ~3 min for TL;DR + Overview + Timeline, ~2.5 min per method subsection, ~2 min results, ~2 min comparison/related/limits, ~2.5 min Q&A. (5 subsections ≈ 18 min; 3 ≈ 14 min.) Round into the 12-20 range; +1-2 for theory-dense papers.
+- `estimated_reading_time`: 12-30 min. Don't guess, give reasonable estimate.
 - `tags`: 3-6 lowercase tags
 - preserve `paper_url`, `arxiv_url`, `author_repo` from the skeleton when present
 
@@ -223,7 +225,7 @@ Rules:
 - Keep each `delta` to one concrete change.
 - Do not pad with vague field milestones. If lineage is thin, use fewer nodes, but keep at least one predecessor and this paper.
 
-#### Optional Context Blocks
+#### Optional Where this Matters Blocks
 
 Use only when helpful:
 
@@ -231,11 +233,32 @@ Use only when helpful:
 
 #### 5. Method subsections (the heart of the note)
 
-Complete and deep; cover every major part of the method the paper actually presents, one subsection each. **If the paper presents several algorithms or variants (e.g. plain block → residual block → bottleneck block, or full attention → masked attention → fused-kernel attention), give each its own subsection; don't merge them into one.** Mirror the paper's structure; don't invent sections it lacks. 
+This is the heart of the note. Cover the method completely and deeply.
 
-**Author each subsection's body in its own `.html` file** and point to it with `body_html_file` (path relative to `analysis.json`); `assemble.py` inlines it. This avoids escaping LaTeX backslashes, quotes, Mermaid arrows, and Python triple-quoted docstrings inside JSON - the biggest authoring time-sink. Use inline `body_html` only for tiny one-paragraph sections.
+Start from the paper's own method headings. If the paper has `5.1`, `5.1.1`, and `5.1.2`, account for all three. A subsection that looks minor may still carry a definition, assumption, dataset construction step, loss term, training detail, or ablation setup. Cover it briefly if it supports the method.
 
-The canonical shape - `method_subsections` is a thin index, one entry per algorithm/module, each pointing at a file:
+Organize Core Method like this:
+
+1. **Overall architecture / data flow**
+   - Show the architecture figure or a simple Mermaid schematic when the method has multiple moving parts.
+   - Explain the data flow from input to output.
+   - Name the key modules before diving into formulas.
+2. **Core module details**
+   - Input and output.
+   - Core formula or algorithm, with a prose gloss for every symbol.
+   - Pseudocode or code when it helps the reader implement or verify the idea.
+   - Design-choice analysis: why this choice beats the obvious alternative, and what tradeoff it introduces.
+3. **Key technical details**
+   - Training strategy.
+   - Hyperparameters.
+   - Implementation tricks.
+   - Inference tricks.
+   - Data preprocessing.
+   - Reproduction risks.
+
+Write each substantial method subsection in its own `.html` file and point to it with `body_html_file` (path relative to `analysis.json`). Use inline `body_html` only for tiny sections. This keeps LaTeX, Mermaid, and code easier to edit.
+
+`method_subsections` is a thin index, one entry per algorithm or module:
 
 ```json
 "method_subsections": [
@@ -246,15 +269,7 @@ The canonical shape - `method_subsections` is a thin index, one entry per algori
 ]
 ```
 
-The HTML (formulas, pseudocode, runnable Python, Mermaid, Why-question callouts) lives in those `.html` files. `analysis.json` itself stays thin: no long HTML strings.
-
-For each module includes:
-
-- Input and output.
-- Core formula or algorithm, with a prose gloss for every symbol.
-- Variable-by-variable explanation.
-- Pseudocode or code implementation.
-- Design-choice analysis: why this choice beats the obvious alternative, and what tradeoff it introduces.
+The long explanation lives in those `.html` files. Keep `analysis.json` as a compact manifest.
 
 Use "Why..." callouts for non-obvious design choices:
 
@@ -262,20 +277,9 @@ Use "Why..." callouts for non-obvious design choices:
 <p><strong>Why keep this state instead of recomputing it?</strong> The state is small enough to stay local, while recomputing would scan the full input again. The tradeoff is extra update arithmetic per element.</p>
 ```
 
-Good "Why..." questions ask about the actual design choice, compare against the obvious alternative, and mention the tradeoff. Use 1-3 per long method section.
+Good "Why..." questions name the design choice, compare it with the obvious alternative, and explain the tradeoff. Use them when they sharpen the explanation.
 
-**Pseudocode plus runnable Python.** After any formula or algorithm the paper defines, include both: pseudocode mirroring the paper's listing, then a runnable Python demo verified with an `assert` against a reference or invariant (the assert shows how to test it and proves it was run). This applies to every algorithm the paper presents, baselines included (naive softmax, safe softmax each get their own block, not just the headline contribution). Skip code only for subsections with no formula or algorithm at all (prose discussion, data-sources list). Inline `body_html` carries pseudocode plus the minimal kernel only (roughly <= 20 lines); anything longer (a load/store counter, an assembled layer, a multi-variant benchmark) goes in `coderefs.json` as `source: llm_generated`, anchored from the prose.
-
-##### Key Technical Details
-
-Include when the paper depends on them:
-
-- Training strategy.
-- Hyperparameters.
-- Implementation tricks.
-- Inference tricks.
-- Data preprocessing.
-- Reproduction risks.
+Use code when the paper defines an algorithm, recurrence, kernel, or implementation detail. A short runnable Python demo with an `assert` is useful when it clarifies the idea. Do not force code into prose-only sections. Put longer code examples in `coderefs.json` as `source: llm_generated` and anchor them from the prose.
 
 A full worked module deep-dive (Multi-Head Self-Attention: architecture diagram → I/O → named formula blocks → code → design analysis) is in `references/method-example.md`. Read it when authoring the first method section.
 
@@ -287,18 +291,29 @@ Schema:
 "experiments_setup_summary": "...",
 "main_results": {
   "headline": "...",
-  "table": {"headers": [...], "rows": [...], "highlight_row": 0},
+  "findings": ["...", "..."],
+  "tables": [
+    {"caption": "Table 2 - WMT 2014 BLEU vs training cost", "headers": [...], "rows": [...], "highlight_row": 0},
+    {"caption": "Table 3 - architecture ablations (dev set)",  "headers": [...], "rows": [...]}
+  ],
   "ablations": ["..."]
 }
 ```
 
-Writing bar:
+(`table` singular is still accepted for a one-table paper; use `tables` when the paper reports several, e.g. main result + ablation grid + transfer.)
 
-- The headline states the result envelope: workload, baseline, metric, and regime.
-- Tables should compare regimes, not dump every number.
-- Use result figures when the shape of the curve matters.
-- Ablations should explain which mechanism earned which gain.
-- If the paper's evaluation is narrow, say so.
+This section is analysis, not a number dump. State the conclusions first, then use tables and figures as evidence. Use only the result types the paper actually reports:
+
+- **Main result** (`headline`): the result envelope in one sentence: workload, baseline, metric, magnitude, and the regime where it holds. State the finding, not just the number ("beats the best ensemble by >2 BLEU at ~100x less training cost", not "got 28.4").
+- **Findings** (`findings`, 2-5 bullets): one claim per bullet, with the evidence that supports it.
+  - *Main comparison*: what the headline number means against the baseline.
+  - *Ablation / component attribution*: which mechanism earned which gain (tie each to a row: "single head costs 0.9 BLEU; too many heads also hurts -> there is a sweet spot").
+  - *Scaling / efficiency*: the compute-vs-quality relationship, if the paper reports one (FLOPs, params, steps, wall-clock).
+  - *Transfer / generalization*: results on a second task or out-of-domain setting, if any.
+- **Tables** (`tables`): one captioned table per result family the paper reports; compare regimes, do not dump every number. Highlight the paper's own model row.
+- **Ablations** (`ablations`): finer-grained per-component notes that did not rise to a headline finding.
+- **Result figures**: include only when the shape of a curve carries the point.
+- **Honest read**: if the evaluation is narrow (few tasks, one domain, no scaling study), say so here in a finding; keep method-level weaknesses in the Limitations section, do not duplicate.
 
 #### 7. Comparison and Related Work
 
@@ -312,6 +327,14 @@ Use `methods_comparison` when a table helps the reader choose between methods:
   "note": "..."
 }
 ```
+
+This is one decision matrix, not another results table. The table holds the axes; the `note` gives the takeaway.
+
+- Pick axes the reader would actually weigh: cost, latency, memory, path length, data needed, or parallelism.
+- Include a column that names this paper's delta, so the contrast is explicit.
+- `highlight_row` marks this paper's method.
+- The `note` is the takeaway, not a caption. State when each method wins and where this paper's method stops winning.
+- Use `methods_comparison` for contrasting mechanisms on shared axes; use `related_work` for lineage and prose. Do not duplicate one in the other.
 
 `related_work` renders up to three sub-blocks; each is shown only when its field is populated, so omit ones you cannot fill rather than leaving them empty:
 
@@ -331,23 +354,51 @@ Do not duplicate the Q&A. Lists are for scan value; Q&A is for deeper reasoning.
 
 #### 9. Q&A
 
-5-8 questions. Good questions are the points a smart reader might still stumble on after reading the note.
+Q&A is the reader's self-check. Write 5-8 questions across several angles and difficulty levels. Include a question only if a reader who studied the note would still pause on it. Skip rhetorical recaps like "What is the main idea?" and anything the body already answers.
 
 Each item is `{"q": "...", "a": "...", "type": "..."}` (keys `q`/`a`, not `question`/`answer`). Types accepted by renderer:
 
-- `intuition`
-- `principle`
-- `detail`
-- `limit`
-- `engineering`
-- `extension`
+- `intuition` (0-1): easy gut-check. "In one line, why does this work?"
+- `principle` (1-2): design rationale. "Why this choice instead of the obvious alternative?"
+- `detail` (1-2): mechanical clarity. "What does this symbol, step, or module actually do?"
+- `limit` (0-1): failure condition. "When does this break?"
+- `engineering` (1-2): performance envelope. "How does the gain scale, what does it cost, and where does it stop winning?"
+- `extension` (0-1): transfer. "Where else could this idea apply, and what would need to change?"
 
-Rules:
+Answer rules:
 
-- Do not ask "What is the main idea?"
-- Use examples, small calculations, or paper numbers.
-- If the paper does not settle an answer, say where the evidence stops.
-- Use numbered lists when an answer has multiple reasons.
+- Do not fabricate. If the paper does not settle an answer, say what it shows and where the evidence stops.
+- Show, don't assert. Use a worked example, a few lines of code, napkin math, or paper numbers when that makes the answer click.
+- Mix difficulty. Readers need a few easy intuition wins, not only deep questions.
+- For engineering questions, probe scaling and tradeoffs: input size, hardware, memory, latency, accuracy, extra FLOPs, or where another method wins.
+- Use numbered lists when an answer has multiple reasons, conditions, or steps.
+
+**Engineering questions.** Probe the *performance envelope* or tradeoffs: how the gain scales with input dimensions and hardware, where it stops winning and what beats it there, and what's traded away to get it (extra flops for fewer memory ops, memory for speed, accuracy for latency). For example:
+
+```text
+Q (engineering): "LoRA quality depends on rank r. What sets the right r,
+   and where does increasing r stop paying off?"
+
+A: The paper sweeps r ∈ {1, 2, 4, 8, 16, 64} on GPT-3 175B:
+   1. Task difficulty — simple classification (RTE, BoolQ) saturates at r=1–2;
+      complex generation (E2E NLG) needs r=4–8 to match full finetuning.
+   2. Subspace coverage — the top few singular directions of ΔW carry most
+      of the task signal, so most tasks need only a few directions.
+   3. Cost ceiling — r doesn't change inference latency (A,B are merged at deploy),
+      so the only knob is finetune memory; r=8 trains ~9,000× fewer params
+      than full finetuning of 175B.
+   Takeaway: start at r=4 for general tasks; sweep up only if validation
+   loss stays above the full-finetune line.
+```
+
+**Answer structure: enumerated lists over walls of prose.** When an answer has multiple reasons, conditions, or steps, name and number them:
+
+> Bad: "In Stage 4 because if you introduced synthetic data earlier the model wouldn't have built up visual priors and pure-color-background-plus-text lacks natural textures so it would interfere with the fit and also caption quality depends on the VLM…"
+>
+> Good: "Introducing synthetic data before Stage 4 has **two risks**:
+> 1. **Visual priors aren't established yet** - synthetic text images lack natural-scene textures; introducing them early distorts the model's fit to real image statistics.
+> 2. **Caption quality depends on model strength** - captioning synthetic scenes needs a strong enough VLM; Stage 4 is the earliest point that's reliable.
+> This 'natural-image foundation first, specialized data later' curriculum mirrors pretrain-then-finetune."
 
 #### 10. Quiz
 
@@ -362,16 +413,16 @@ Rules:
   "id": "model-architecture",
   "src": "p05_raster_00.png",
   "caption": "Figure 1 - Transformer model architecture. <strong>Shows</strong>: encoder and decoder stacks with multi-head attention, feed-forward layers, residual connections, and normalization. <strong>From paper</strong>: §3.",
-  "anchor_section": "method",
-  "anchor_phrase": "encoder and decoder stacks"
+  "anchor_section": "architecture"
 }
 ```
 
 Schema rules (`--check` enforces the first two):
 
 - Caption must include `<strong>Shows</strong>` (what the image depicts) and `<strong>From paper</strong>` (the source section/figure).
-- `anchor_section` is one of: `header`, `overview`, `motivation`, `method`, `experiments`, `comparison`, `related`, `limits`, `inline`.
-- A method figure takes an `anchor_phrase` (verbatim prose from the target section) that positions it before that paragraph; omit it only for a true overview/architecture figure.
+- `anchor_section` is one of: `header`, `overview`, `motivation`, `architecture`, `method`, `experiments`, `comparison`, `related`, `limits`, `inline`.
+- The paper's **overall-architecture figure** uses `anchor_section: "architecture"` (no `anchor_phrase`); it is hoisted to open Core Method. The introduction should establish problem, background, and the paper's move before showing implementation structure.
+- A method figure takes an `anchor_phrase` (verbatim prose from the target section) that positions it before that paragraph; omit `anchor_phrase` only for the `architecture` figure.
 
 Which figures to pick and where to place them: `references/diagrams.md`.
 
@@ -398,11 +449,12 @@ Inputs: arXiv URL/ID, local PDF, PDF URL. Outputs include `extracted.txt`, `figu
 
 ### 2. Plan coverage (inventory + spine)
 
-Build a coverage plan before authoring: the guardrail against dropped sections. For most papers this is inline; for long or multi-pass papers, persist it to `/tmp/yomitoki/<paper-slug>/coverage.md` so decisions survive between passes (short papers do not need the file). Two passes:
+Build a short coverage plan before authoring. It prevents dropped sections. For long or multi-pass papers, save it to `/tmp/yomitoki/<paper-slug>/coverage.md`.
 
-**Pass A, inventory (coverage), heading-first.** Enumerate **every section/subsection heading in the paper, in order**, mechanically, one row each (method subsections included). Then copy the paper's stated contributions verbatim and map each onto its heading row(s). A heading that introduces its own formula/algorithm/module/result but maps to no note coverage is a **visible gap**, not a silent omission: this is what catches a deep-dive getting compressed into a "background" paragraph. Mark each row **cover deeply / briefly / omit** with a one-line reason; a heading with its own mechanism defaults to cover-deeply with its own subsection. Omit only true boilerplate (related-work already folded in, reproducibility appendices, acknowledgments). For multi-part systems/model papers, do not let an architecture-heavy read swallow the training, post-training, or systems contributions.
+Plan in two passes:
 
-**Pass B, spine (emphasis).** Fill the five-line outline (Problem / Old way / Failure mode / Paper's move / Payoff). The spine orders and weights the inventory; it does not prune it.
+1. **Inventory.** List every paper section/subsection in order. Read the local text for each heading before deciding its coverage. Mark each as cover deeply, cover briefly, or omit, with a short reason. A heading with its own formula, algorithm, module, result, dataset step, training detail, or assumption usually deserves coverage. Minor but valid subsections should become a brief paragraph, table row, or named note rather than disappearing.
+2. **Spine.** Write five lines: Problem / Old way / Failure mode / Paper's move / Payoff. Use this to order and weight the note.
 
 The plan (inline, or `coverage.md` for long papers) holds the spine plus these tables:
 
@@ -412,7 +464,7 @@ Spine: Problem / Old way / Failure mode / Paper's move / Payoff
 Contribution inventory: | Paper heading (in order) | Stated contribution? | Cover deeply/briefly/omit | Note section | Evidence |
 Method section plan:     | Section file | Headings covered | Paper evidence | Code/diagram need |
 Experiment map:          | Claim | Metric / dataset / baseline | Paper table/figure | Note placement |
-Figure candidates:       | Figure | Keep? | Anchor section | Placement reason |
+Figure candidates:       | Figure | Type (arch/method/result/ablation/compare) | Keep? | Anchor section |
 Coverage checklist:      | Paper heading | Present in note? | Where |
 ```
 
@@ -430,10 +482,10 @@ For long papers, treat `analysis.json` as a manifest plus short structured field
 
 Write `sections/*.html` one at a time, using the coverage plan to decide scope. Do not load every section draft while authoring the current one.
 
-Each method module must clear the per-module bar in **Method subsections** above (I/O, formula + per-symbol gloss, pseudocode + runnable Python, design-choice callout); that contract is the single source of truth and this step does not restate it. `references/method-example.md` is the full worked example. What is specific to authoring:
+Use the method-section guidance above while writing each file. `references/method-example.md` is the full worked example.
 
 - Open the method with an architecture / data-flow map (a paper figure or Mermaid) when the paper has more than one moving part; skip it for a single small mechanism.
-- The bar is content, not layout. A single-mechanism paper can deliver it as flowing prose rather than labeled sub-blocks, but it still states input/output and glosses every symbol. Dropping those because the prose "reads fine" without them is how a deep dive quietly degrades into a summary.
+- The bar is content, not layout. A single-mechanism paper can use flowing prose, but it still needs inputs, outputs, symbols, and the reason the design works.
 
 After writing each section, mark the heading(s) it covers in the coverage plan (update the `Coverage checklist` in `coverage.md` if you kept the file).
 
@@ -453,7 +505,7 @@ Real refs should be line-specific and include a short preview. Synthesized snipp
 
 Use `references/diagrams.md`.
 
-Pick paper figures that teach the specific paragraph where they appear or carry a result. Do not select a figure because the page "needs an architecture diagram." If the paper has no architecture figure, use a Mermaid schematic only when the architecture or flow is actually in the paper. Place each method figure near the prose it explains with `anchor_phrase`; otherwise leave it out or put it in the correct non-method section.
+Pick figures that teach the paragraph where they appear or carry result evidence. Do not add a diagram just because a section feels empty. If the paper has no architecture figure, use a Mermaid schematic only when the architecture or flow is clear from the paper. Place method figures near the prose they explain with `anchor_phrase`.
 
 ### 7. Assemble and Check
 
@@ -467,9 +519,9 @@ python3 scripts/assemble.py \
   --check
 ```
 
-Author from this skill's contract and let `--check` report structural problems. Do not read `scripts/assemble.py` to learn the authoring rules.
+Author from this skill's contract and let `--check` report structural problems.
 
-Fix all hard failures. Warnings are acceptable only when the choice is deliberate and explained in `visual_notes` or by the paper's structure.
+Fix hard failures. Review warnings and revise when they point to a real issue.
 
 ### 8. Final Self-Review
 
@@ -481,7 +533,7 @@ Before calling the note done, read the TL;DR, Overview, and first method subsect
 - Are code refs real and line-specific when a repo exists?
 - Did any section become a checklist rather than an explanation?
 
-Then run a **coverage pass**, walking the paper's section headings **heading by heading** (re-derived straight from the paper, not just the rows you remembered to plan; if you kept `coverage.md`, reconcile it against the paper rather than trusting it). For every heading you chose to cover, confirm it actually appears in the note (a method subsection, a results row or table, or a named paragraph). A heading that introduces its own formula, algorithm, or module must map to its own method subsection, not a sentence inside another section's background. For every heading you chose to omit, confirm the reason still holds. A heading with its own mechanism, or an item in the paper's own contribution list, that is absent from the note is a bug: add it before shipping. `assemble.py --check` validates structure, not coverage, so this heading walk is the only gate that catches a dropped contribution.
+Then run a coverage pass. Walk the paper's headings in order and confirm each covered heading appears in the note. A heading with its own formula, algorithm, module, or result should not disappear into a background sentence. If a stated contribution is absent, add it before shipping. `assemble.py --check` validates structure, not coverage.
 
 If the answer is no, revise the prose first. The checker cannot judge taste.
 

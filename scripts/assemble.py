@@ -703,15 +703,23 @@ def build_block6_method(a: dict) -> str:
     # an explicit id == "architecture". Anchored method figures must stay
     # anchored to the paragraph they explain instead of being hoisted to the
     # top of Core Method.
+    #
+    # Preferred, explicit signal: anchor_section == "architecture". Two legacy
+    # fallbacks are kept so older notes still render: a method-anchored figure
+    # with no anchor_phrase, or id == "architecture".
     arch_fig = None
     for fig in paper_figures:
-        if (
-            fig.get("anchor_section") == "method"
-            and not fig.get("anchor_phrase")
-            and arch_fig is None
-        ):
+        if fig.get("anchor_section") == "architecture":
             arch_fig = fig
             break
+    if arch_fig is None:
+        for fig in paper_figures:
+            if (
+                fig.get("anchor_section") == "method"
+                and not fig.get("anchor_phrase")
+            ):
+                arch_fig = fig
+                break
     if arch_fig is None:
         for fig in paper_figures:
             if fig.get("id") == "architecture":
@@ -805,19 +813,40 @@ def build_block7_experiments(a: dict) -> str:
     setup = a.get("experiments_setup_summary", "")
     results = a.get("main_results", {})
     headline = esc(results.get("headline", ""))
-    table = results.get("table", {})
+    findings = results.get("findings", [])
     ablations = results.get("ablations", [])
 
+    # Tables: accept a list of captioned tables (`tables`) or a single `table`.
+    tables = results.get("tables")
+    if not tables:
+        single = results.get("table", {})
+        tables = [single] if single.get("headers") else []
+
     fig_html = _anchor_figs_html(a, "experiments")
-    if not setup and not headline and not table.get("headers") and not ablations and not fig_html:
+    has_table = any(t.get("headers") for t in tables)
+    if not setup and not headline and not findings and not has_table and not ablations and not fig_html:
         return ""
 
     setup_html = f"<p>{esc(setup)}</p>\n" if setup else ""
 
-    # Results table
-    table_html = _data_table(
-        table.get("headers", []), table.get("rows", []), table.get("highlight_row")
-    )
+    # Conclusions before evidence: distilled findings, then the supporting tables.
+    findings_html = ""
+    if findings:
+        items = "".join(f"\n        <li>{esc_inline(f)}</li>" for f in findings)
+        findings_html = f"""
+      <p class="label">Key findings</p>
+      <ul class="findings ablations">{items}
+      </ul>"""
+
+    tables_html = ""
+    for t in tables:
+        if not t.get("headers"):
+            continue
+        caption = t.get("caption", "")
+        cap_html = f'<p class="table-caption">{esc_inline(caption)}</p>\n' if caption else ""
+        tables_html += cap_html + _data_table(
+            t.get("headers", []), t.get("rows", []), t.get("highlight_row")
+        ) + "\n"
 
     ablations_html = ""
     if ablations:
@@ -831,8 +860,9 @@ def build_block7_experiments(a: dict) -> str:
     <!-- ══ BLOCK 7 — EXPERIMENTS ════════════════════════════════════════════ -->
     <section id="experiments" class="paper-section">
       <h2>Experiments</h2>
-      {setup_html}<p class="results-headline">{headline}</p>{fig_html}
-{table_html}
+      {setup_html}<p class="results-headline">{headline}</p>
+{findings_html}{fig_html}
+{tables_html}
 {ablations_html}
     </section>"""
 
@@ -1581,9 +1611,14 @@ _VALID_SECTIONS = {
 }
 
 _VALID_FIGURE_SECTIONS = {
-    "header", "overview", "motivation", "method", "experiments",
+    "header", "overview", "motivation", "architecture", "method", "experiments",
     "comparison", "related", "limits", "inline",
 }
+
+# Caption/id patterns that mark a figure as the paper's overall-architecture
+# diagram. Used to warn when such a figure is anchored to a teaser section
+# (overview/motivation) instead of opening Core Method via "architecture".
+_ARCH_FIGURE_RE = re.compile(r"\b(overall|model)\s+architecture\b", re.IGNORECASE)
 
 
 def _walk_strings(obj, path=""):
@@ -1950,6 +1985,41 @@ def run_checks(a: dict, coderefs_sections: dict, figures_dir, html: str) -> int:
     else:
         lines.append(("PASS", "method orphans      all method refs have anchor_phrase"))
 
+    # 1d. Author-repo ref quality — an author_repo ref is only useful as an
+    #     implementation handle if it points at a specific line range and shows
+    #     a preview. A repo-root / whole-file link with no snippet is a
+    #     bookmark, not evidence (the code-ref-waterfall's #1 rule). WARN so it
+    #     stays advisory, but name each offender so it can't pass silently.
+    _LINE_RANGE_RE = re.compile(r"#L\d+")
+    lazy_repo_refs = []
+    for sid, refs in coderefs_sections.items():
+        for r in refs:
+            if r.get("source") != "author_repo":
+                continue
+            url = r.get("url") or ""
+            no_lines = not _LINE_RANGE_RE.search(url)
+            no_snippet = not (r.get("snippet") or "").strip()
+            if no_lines or no_snippet:
+                why = []
+                if no_lines:
+                    why.append("no #Lx-Ly line range")
+                if no_snippet:
+                    why.append("no snippet")
+                lazy_repo_refs.append(
+                    (r.get("title") or r.get("repo") or url or "?", ", ".join(why))
+                )
+    if lazy_repo_refs:
+        n_warn += 1
+        lines.append(("WARN", f"author-repo refs    {len(lazy_repo_refs)} author_repo ref(s) read as bookmarks, not implementation handles:"))
+        lines += [
+            ("", f"                      - {title!r}: {why}")
+            for title, why in lazy_repo_refs[:6]
+        ]
+        if len(lazy_repo_refs) > 6:
+            lines.append(("", f"                      … and {len(lazy_repo_refs) - 6} more"))
+    else:
+        lines.append(("PASS", "author-repo refs    line-anchored with previews"))
+
     # 2. Figures — declared files must exist on disk and be referenced in the html
     figs = a.get("paper_figures", [])
     fig_ids = [f.get("id") for f in figs if f.get("id")]
@@ -1991,6 +2061,29 @@ def run_checks(a: dict, coderefs_sections: dict, figures_dir, html: str) -> int:
         lines.append(("FAIL", msg))
     else:
         lines.append(("PASS", f"figures             {len(figs)}/{len(figs)} found and referenced"))
+
+    # 2a. Architecture-figure placement — a figure whose id/caption reads like
+    #     the paper's overall-architecture diagram belongs at the top of Core
+    #     Method (anchor_section: "architecture"), not in a teaser section. The
+    #     overview/motivation render paths happily accept it, so the wrong
+    #     choice produces plausible output with no other signal; surface it.
+    misplaced_arch = [
+        f for f in figs
+        if f.get("anchor_section") in ("overview", "motivation")
+        and (
+            _ARCH_FIGURE_RE.search(f.get("caption") or "")
+            or "architecture" in (f.get("id") or "").lower()
+        )
+    ]
+    if misplaced_arch:
+        n_warn += 1
+        lines.append(("WARN", f"arch fig placement  {len(misplaced_arch)} architecture-like figure(s) in an intro section; prefer anchor_section: \"architecture\" to open Core Method:"))
+        lines += [
+            ("", f"                      - {(f.get('id') or f.get('src') or '?')!r} (anchor_section: {f.get('anchor_section')!r})")
+            for f in misplaced_arch[:5]
+        ]
+    else:
+        lines.append(("PASS", "arch fig placement  no architecture figures stranded in teaser sections"))
 
     # 2b. Mermaid coverage. This is informational only: the skill now asks for
     #     diagrams when they reduce working memory, not to hit a quota.
@@ -2156,6 +2249,12 @@ def run_checks(a: dict, coderefs_sections: dict, figures_dir, html: str) -> int:
     print("=" * 60)
     result = "FAIL" if n_fail else ("PASS (with warnings)" if n_warn else "PASS")
     print(f"  RESULT: {result}  ({n_fail} failure(s), {n_warn} warning(s))")
+    print("=" * 60)
+    print("  PASS is necessary, not sufficient. --check validates STRUCTURE;")
+    print("  it does NOT verify: coverage (every paper heading with its own")
+    print("  mechanism has a subsection), figure placement is semantically")
+    print("  right, code refs are real and on-point, or prose is accurate.")
+    print("  Do the heading-by-heading coverage walk against the paper itself.")
     print("=" * 60)
     return n_fail
 

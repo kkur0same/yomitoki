@@ -91,6 +91,7 @@ Open the resulting `yomitoki-out/my-paper/index.html` in a browser.
 | `scripts/assemble.py` | HTML rendering and `--check` validation (stdlib only). |
 | `references/code-ref-waterfall.md` | How to source and anchor code references. |
 | `references/diagrams.md` | Figure curation and Mermaid safety. |
+| `references/method-example.md` | How to structure core method section. |
 | `assets/` | `styles.css` and `main.js` copied into each note. |
 | `examples/` | Rendered sample notes (see [`examples/README.md`](examples/README.md)). |
 
