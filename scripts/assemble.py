@@ -385,6 +385,11 @@ def build_block3b_overview(a: dict) -> str:
     problem = ov.get("problem", "")
     solution = ov.get("solution", "")
     contributions = ov.get("contributions", [])
+    if isinstance(contributions, str):
+        # Defensive rendering: schema_issues() reports this as a failure, but
+        # do not render one bullet per character if the author accidentally
+        # supplied a single string.
+        contributions = [contributions]
 
     def _para(text: str) -> str:
         if text.lstrip().startswith("<"):
@@ -1375,6 +1380,7 @@ def assemble(
     assets_dir: Path,
     out_dir: Path,
     check: bool = False,
+    strict: bool = False,
 ):
     # 1. Load data
     print(f"Loading analysis: {analysis_path}")
@@ -1596,7 +1602,7 @@ def assemble(
     print(f"  Open in browser: file://{index_path.resolve()}")
 
     if check:
-        return run_checks(a, coderefs_sections, figures_dir, html)
+        return run_checks(a, coderefs_sections, figures_dir, html, strict=strict)
     return 0
 
 
@@ -1709,6 +1715,11 @@ def _closest(a):
     return [c] if c else []
 
 
+def _overview_contributions(a):
+    ov = _as_dict(a.get("paper_overview"))
+    return [ov["contributions"]] if "contributions" in ov else []
+
+
 _ITEM_SCHEMAS = [
     {"path": "prerequisites[]", "get": lambda a: _as_list(a.get("prerequisites")),
      "required": ["term", "brief"],
@@ -1717,6 +1728,10 @@ _ITEM_SCHEMAS = [
     {"path": "tech_timeline[]", "get": lambda a: _as_list(a.get("tech_timeline")),
      "required": ["year", "label"], "optional": ["delta", "current"],
      "aliases": {"name": "label", "title": "label", "change": "delta"}},
+    {"path": "paper_overview.contributions", "get": _overview_contributions,
+     "required": [], "optional": [],
+     "must_be": "list[str]",
+     "aliases": {}},
     {"path": "qa[]", "get": lambda a: _as_list(a.get("qa")),
      "required": ["q", "a"], "optional": ["type"],
      "enums": {"type": _QA_TYPES},
@@ -1857,6 +1872,17 @@ def schema_issues(a: dict):
         items = spec["get"](a)
         if not items:
             continue
+        if spec.get("must_be") == "list[str]":
+            for item in items:
+                if not isinstance(item, list) or any(not isinstance(x, str) for x in item):
+                    issues.append((
+                        "FAIL",
+                        f"{spec['path']}: expected a list of strings, got "
+                        f"{type(item).__name__}; a single string renders as one "
+                        f"character per bullet in older outputs",
+                        False,
+                    ))
+            continue
         known = set(spec["required"]) | set(spec.get("optional", []))
         aliases = spec.get("aliases", {})
         is_list = spec["path"].endswith("[]")
@@ -1902,7 +1928,7 @@ def schema_issues(a: dict):
     return issues
 
 
-def run_checks(a: dict, coderefs_sections: dict, figures_dir, html: str) -> int:
+def run_checks(a: dict, coderefs_sections: dict, figures_dir, html: str, *, strict: bool = False) -> int:
     """Consolidated quality report run after assembly.
 
     Hard failures (exit non-zero): dead or malformed code anchors,
@@ -1910,6 +1936,7 @@ def run_checks(a: dict, coderefs_sections: dict, figures_dir, html: str) -> int:
     invalid code-ref sections, authored em-dashes (the writing rules ban them;
     warning-only previously let them slip through).
     Warnings (exit zero): partial jargon coverage and storage hygiene.
+    Strict mode upgrades final-quality code-ref warnings to failures.
     Returns the number of hard failures.
     """
     try:
@@ -1974,8 +2001,12 @@ def run_checks(a: dict, coderefs_sections: dict, figures_dir, html: str) -> int:
     method_refs = coderefs_sections.get("method", [])
     method_orphans = [r for r in method_refs if not r.get("anchor_phrase")]
     if method_orphans:
-        n_warn += 1
-        lines.append(("WARN", f"method orphans      {len(method_orphans)} method ref(s) without anchor_phrase (orphan side-panel cards):"))
+        tag = "FAIL" if strict else "WARN"
+        if strict:
+            n_fail += 1
+        else:
+            n_warn += 1
+        lines.append((tag, f"method orphans      {len(method_orphans)} method ref(s) without anchor_phrase (orphan side-panel cards):"))
         lines += [
             ("", f"                      - {(r.get('title') or r.get('repo') or r.get('url') or '?')!r}")
             for r in method_orphans[:5]
@@ -2009,8 +2040,12 @@ def run_checks(a: dict, coderefs_sections: dict, figures_dir, html: str) -> int:
                     (r.get("title") or r.get("repo") or url or "?", ", ".join(why))
                 )
     if lazy_repo_refs:
-        n_warn += 1
-        lines.append(("WARN", f"author-repo refs    {len(lazy_repo_refs)} author_repo ref(s) read as bookmarks, not implementation handles:"))
+        tag = "FAIL" if strict else "WARN"
+        if strict:
+            n_fail += 1
+        else:
+            n_warn += 1
+        lines.append((tag, f"author-repo refs    {len(lazy_repo_refs)} author_repo ref(s) read as bookmarks, not implementation handles:"))
         lines += [
             ("", f"                      - {title!r}: {why}")
             for title, why in lazy_repo_refs[:6]
@@ -2263,21 +2298,81 @@ def run_checks(a: dict, coderefs_sections: dict, figures_dir, html: str) -> int:
 # CLI
 # ---------------------------------------------------------------------------
 
+def describe_tool() -> dict:
+    """Return a machine-readable contract for agents."""
+    return {
+        "tool": "scripts/assemble.py",
+        "purpose": "Assemble Yomitoki authoring artifacts into a self-contained HTML reader.",
+        "command": (
+            "python3 scripts/assemble.py --analysis /tmp/yomitoki/<slug>/analysis.json "
+            "--coderefs /tmp/yomitoki/<slug>/coderefs.json "
+            "--figures /tmp/yomitoki/<slug>/figures/ --assets assets "
+            "--out ./yomitoki-out/<slug>/ --check --strict"
+        ),
+        "inputs": {
+            "--analysis": "Path to analysis.json.",
+            "--coderefs": "Path to coderefs.json.",
+            "--figures": "Directory containing curated figure images. Optional when no paper_figures are declared.",
+            "--assets": "Directory containing styles.css and main.js.",
+            "--out": "Output directory for index.html and copied assets.",
+        },
+        "outputs": {
+            "index.html": "Rendered HTML reader.",
+            "styles.css": "Copied stylesheet.",
+            "main.js": "Copied client script.",
+            "figures/": "Copied referenced figures.",
+            "paper.pdf": "Copied original paper when present next to analysis.json.",
+        },
+        "checks": [
+            "schema/key mismatches that would render empty",
+            "dead code anchors",
+            "missing or duplicate figures",
+            "invalid figure/code-ref section IDs",
+            "unbalanced KaTeX delimiters",
+            "authored em-dashes",
+            "dead TOC links",
+        ],
+        "strict_checks": [
+            "method code refs without anchor_phrase fail",
+            "author_repo refs without #Lx line ranges fail",
+            "author_repo refs without snippets fail",
+        ],
+        "limits": [
+            "--check validates structure, not paper coverage.",
+            "--check does not prove prose accuracy or code-ref relevance.",
+        ],
+        "contract": "Run python3 scripts/assemble.py --print-contract for the renderer contract.",
+    }
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def print_contract() -> int:
+    contract = _repo_root() / "references" / "renderer-contract.md"
+    try:
+        print(contract.read_text(encoding="utf-8"))
+        return 0
+    except OSError as e:
+        print(f"ERROR: renderer contract not found: {contract} ({e})", file=sys.stderr)
+        return 1
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Assemble a yomitoki HTML reader from analysis + coderefs + figures + assets."
     )
-    parser.add_argument("--analysis", required=True, help="Path to analysis.json")
-    parser.add_argument("--coderefs", required=True, help="Path to coderefs.json")
+    parser.add_argument("--analysis", help="Path to analysis.json")
+    parser.add_argument("--coderefs", help="Path to coderefs.json")
     parser.add_argument(
         "--figures", default=None, help="Directory containing figure PNGs"
     )
     parser.add_argument(
         "--assets",
-        required=True,
         help="Directory containing styles.css and main.js",
     )
-    parser.add_argument("--out", required=True, help="Output directory")
+    parser.add_argument("--out", help="Output directory")
     parser.add_argument(
         "--check",
         action="store_true",
@@ -2286,7 +2381,33 @@ def main():
              "authored em-dashes, jargon coverage) "
              "and exit non-zero on any hard failure.",
     )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="With --check, treat final-quality code-ref issues as failures "
+             "(method refs without anchors, author_repo refs without line "
+             "ranges or snippets).",
+    )
+    parser.add_argument("--describe", action="store_true",
+                        help="Print this tool's input/output contract as JSON and exit")
+    parser.add_argument("--print-contract", action="store_true",
+                        help="Print references/renderer-contract.md and exit")
     args = parser.parse_args()
+
+    if args.describe:
+        print(json.dumps(describe_tool(), indent=2, ensure_ascii=False))
+        return
+    if args.print_contract:
+        sys.exit(print_contract())
+    if args.strict and not args.check:
+        parser.error("--strict requires --check")
+
+    missing_args = [
+        name for name in ("analysis", "coderefs", "assets", "out")
+        if not getattr(args, name)
+    ]
+    if missing_args:
+        parser.error("missing required arguments: " + ", ".join(f"--{n}" for n in missing_args))
 
     analysis_path = Path(args.analysis)
     coderefs_path = Path(args.coderefs)
@@ -2308,6 +2429,7 @@ def main():
         assets_dir=assets_dir,
         out_dir=out_dir,
         check=args.check,
+        strict=args.strict,
     )
     if args.check and n_fail:
         sys.exit(1)

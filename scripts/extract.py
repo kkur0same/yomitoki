@@ -895,18 +895,63 @@ def handle_pdf(pdf_path_or_url: str, is_url: bool, out_dir: Path,
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+def describe_tool() -> dict:
+    """Return a machine-readable contract for agents. Keep this high-level:
+    authoring rules live in SKILL.md and references/, not in this script."""
+    return {
+        "tool": "scripts/extract.py",
+        "purpose": "Extract a research paper into Yomitoki-ready working files.",
+        "inputs": [
+            "arXiv URL, e.g. https://arxiv.org/abs/1706.03762",
+            "arXiv ID, e.g. 1706.03762",
+            "local PDF path",
+            "PDF URL",
+        ],
+        "command": "python3 scripts/extract.py <input> --out /tmp/yomitoki/<paper-slug>/",
+        "options": {
+            "--refresh": "Re-fetch or re-copy cached inputs.",
+            "--quiet": "Reduce stdout.",
+        },
+        "outputs": {
+            "analysis.json": "Skeleton metadata plus detected paper sections. Verify title/authors/repo before authoring.",
+            "extracted.txt": "Extracted paper text for reading and coverage planning.",
+            "figures.json": "Raw extracted figure metadata.",
+            "figures/": "Extracted or downloaded figure images.",
+            "paper.pdf": "Original PDF when available.",
+            "raw.html": "Raw arXiv HTML when the HTML path succeeds.",
+        },
+        "next_steps": [
+            "Read extracted.txt by headings.",
+            "Create /tmp/yomitoki/<paper-slug>/coverage.md for every paper.",
+            "Author analysis.json, sections/*.html, coderefs.json, and curated paper_figures.",
+            "Use scripts/assemble.py --describe for assembly inputs.",
+        ],
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Extract a paper (arXiv or PDF) into yomitoki-ready files."
     )
-    parser.add_argument("input", help="arXiv URL/ID, local PDF path, or PDF URL")
-    parser.add_argument("--out", required=True, metavar="DIR",
+    parser.add_argument("input", nargs="?", help="arXiv URL/ID, local PDF path, or PDF URL")
+    parser.add_argument("--out", metavar="DIR",
                         help="Output directory (created if needed)")
     parser.add_argument("--refresh", action="store_true",
                         help="Re-fetch even if cache exists")
     parser.add_argument("--quiet", action="store_true",
                         help="Minimal stdout")
+    parser.add_argument("--describe", action="store_true",
+                        help="Print this tool's input/output contract as JSON and exit")
     args = parser.parse_args()
+
+    if args.describe:
+        print(json.dumps(describe_tool(), indent=2, ensure_ascii=False))
+        return
+
+    if not args.input:
+        parser.error("input is required unless --describe is used")
+    if not args.out:
+        parser.error("--out is required unless --describe is used")
 
     out_dir = Path(args.out)
     # Guardrail: writing to bare /tmp/yomitoki/ would overwrite a previous
