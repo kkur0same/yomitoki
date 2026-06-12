@@ -2,7 +2,7 @@
 
 Turn a research paper into a faithful, technical, code-augmented HTML reading note.
 
-`yomitoki` (読み解き, "reading and interpreting") is an [agent skill](https://docs.claude.com/en/docs/claude-code/skills) plus a small Python toolchain that converts a paper (arXiv link, arXiv ID, PDF path, or PDF URL) into a self-contained HTML study note. The note is written like a strong technical blog post: it leads with the contrast between the old approach and the paper's move, anchors figures to the prose they explain, and links claims to real source-code line ranges.
+`yomitoki` (読み解き, "reading and interpreting") is an agent skill plus a small Python toolchain that converts a paper (arXiv link, arXiv ID, PDF path, or PDF URL) into a self-contained HTML study note. The note is written like a strong technical blog post: it leads with the contrast between the old approach and the paper's move, anchors figures to the prose they explain, and links claims to real source-code line ranges.
 
 A finished note answers five questions:
 
@@ -42,22 +42,53 @@ extracted.txt + figures/ + figures.json + skeleton analysis.json
    │   you (or an agent) author coverage.md, compact analysis.json,
    │   coderefs.json, and sections/*.html
    ▼
-   │   scripts/assemble.py --check
+   │   scripts/assemble.py --check --strict
    ▼
 index.html  (self-contained reading note)
 ```
 
-`extract.py` pulls text and figures from the paper. A human or an agent then writes `coverage.md` as the section plan and coverage ledger, keeps `analysis.json` compact, puts long prose in `sections/*.html`, and records code pointers in `coderefs.json`. `assemble.py` renders everything to HTML and validates it with `--check` (anchor phrases, figure references, KaTeX delimiters, timeline, and more).
+`extract.py` pulls text and figures from the paper. A human or an agent then writes `coverage.md` as the section plan and coverage ledger, keeps `analysis.json` compact, puts long prose in `sections/*.html`, and records code pointers in `coderefs.json`. `assemble.py` renders everything to HTML and validates it with `--check`; use `--check --strict` before shipping to require real method anchors and author-repo code previews.
 
 ## Use as a Claude Code skill
 
-Clone into your skills directory so the agent can invoke it:
+Clone into your Claude Code skills directory so the agent can invoke it:
 
 ```bash
 git clone git@github.com:kkur0same/yomitoki.git ~/.claude/skills/yomitoki
 ```
 
-Then in Claude Code: `/yomitoki <arxiv-url | pdf-path | paper-title>`. The agent reads [`SKILL.md`](SKILL.md) and drives the workflow end to end. (Works with any harness that loads `SKILL.md`-style skills.)
+Then in Claude Code:
+
+```text
+/yomitoki <arxiv-url | pdf-path | paper-title>
+```
+
+The agent reads [`SKILL.md`](SKILL.md) and drives the workflow end to end.
+
+## Use in a Codex session
+
+Install as a user skill so Codex can invoke it from any repo:
+
+```bash
+git clone git@github.com:kkur0same/yomitoki.git ~/.agents/skills/yomitoki
+```
+
+Or install it for one repository:
+
+```bash
+mkdir -p .agents/skills
+git clone git@github.com:kkur0same/yomitoki.git .agents/skills/yomitoki
+```
+
+Then start Codex in that repo and invoke the skill explicitly:
+
+```text
+$yomitoki <arxiv-url | pdf-path | paper-title>
+```
+
+You can also open `/skills` in Codex CLI/IDE and select `yomitoki`. Codex reads [`SKILL.md`](SKILL.md) when the skill is selected and uses the bundled references/scripts as needed. If the skill does not appear after installing, restart Codex.
+
+For distribution beyond local installs, package Yomitoki as a Codex plugin; the repo currently works as a direct skill folder.
 
 ## Use standalone
 
@@ -68,7 +99,7 @@ pip install -r requirements.txt          # pypdf, pymupdf; pandoc optional
 python3 scripts/extract.py <arxiv-url|pdf-path|pdf-url> --out /tmp/yomitoki/my-paper/
 
 # 2. Author coverage.md, compact analysis.json, sections/*.html, and coderefs.json
-#    (see SKILL.md and references/code-ref-waterfall.md)
+#    (see SKILL.md and references/renderer-contract.md)
 
 # 3. Assemble + validate
 python3 scripts/assemble.py \
@@ -77,7 +108,7 @@ python3 scripts/assemble.py \
   --figures   /tmp/yomitoki/my-paper/figures/ \
   --assets    assets \
   --out       ./yomitoki-out/my-paper/ \
-  --check
+  --check --strict
 ```
 
 Open the resulting `yomitoki-out/my-paper/index.html` in a browser.
@@ -89,6 +120,7 @@ Open the resulting `yomitoki-out/my-paper/index.html` in a browser.
 | `SKILL.md` | Skill definition and authoring workflow the agent follows. |
 | `scripts/extract.py` | Paper extraction: text, figures, skeleton `analysis.json`. |
 | `scripts/assemble.py` | HTML rendering and `--check` validation (stdlib only). |
+| `references/renderer-contract.md` | Renderer schema, valid keys, code-ref shape, and assemble command. |
 | `references/code-ref-waterfall.md` | How to source and anchor code references. |
 | `references/diagrams.md` | Figure curation and Mermaid safety. |
 | `references/method-example.md` | How to structure core method section. |
